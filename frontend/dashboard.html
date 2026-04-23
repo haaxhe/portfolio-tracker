@@ -1,0 +1,2516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Portfolio Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-primary: #0a0e17;
+    --bg-card: #111827;
+    --bg-card-hover: #1a2332;
+    --border: #1e2a3a;
+    --border-accent: #2d3f54;
+    --text-primary: #e2e8f0;
+    --text-secondary: #8896a8;
+    --text-muted: #4a5568;
+    --accent-green: #34d399;
+    --accent-green-bg: rgba(52, 211, 153, 0.08);
+    --accent-red: #f87171;
+    --accent-red-bg: rgba(248, 113, 113, 0.08);
+    --accent-blue: #60a5fa;
+    --accent-blue-bg: rgba(96, 165, 250, 0.08);
+    --accent-amber: #fbbf24;
+    --font-mono: 'JetBrains Mono', monospace;
+    --font-sans: 'DM Sans', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+  }
+
+  .app-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px 32px;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header-left h1 {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    color: var(--text-primary);
+  }
+  .header-left h1 span { color: var(--accent-blue); }
+  .header-left .subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    margin-top: 4px;
+  }
+  .header-actions { display: flex; gap: 10px; }
+  .btn {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border-accent);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+    border-color: var(--accent-blue);
+  }
+  .btn-primary {
+    background: var(--accent-blue);
+    color: #0a0e17;
+    border-color: var(--accent-blue);
+  }
+  .btn-primary:hover { opacity: 0.9; }
+
+  /* Stat cards */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    transition: border-color 0.2s;
+  }
+  .stat-card:hover { border-color: var(--border-accent); }
+  .stat-label {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    font-family: var(--font-mono);
+  }
+  .stat-value {
+    font-family: var(--font-mono);
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -1px;
+  }
+  .stat-sub {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    margin-top: 6px;
+    font-weight: 500;
+  }
+  .positive { color: var(--accent-green); }
+  .negative { color: var(--accent-red); }
+
+  /* Content grid */
+  .content-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 20px;
+  }
+
+  /* Table */
+  .panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .panel-title {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  th:not(:first-child) { text-align: right; }
+  td {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(30,42,58,0.5);
+    color: var(--text-primary);
+  }
+  td:not(:first-child) { text-align: right; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .symbol-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .symbol-ticker {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-primary);
+  }
+  .symbol-name {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 400;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .broker-tag {
+    font-size: 9px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .broker-robinhood { background: var(--accent-green-bg); color: var(--accent-green); }
+  .broker-etrade { background: var(--accent-blue-bg); color: var(--accent-blue); }
+  .broker-csv { background: rgba(251,191,36,0.1); color: var(--accent-amber); }
+
+  /* Tabs */
+  .tab-bar {
+    display: flex;
+    gap: 4px;
+  }
+  .tab-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 5px 12px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tab-btn:hover { color: var(--text-secondary); }
+  .tab-btn.active {
+    background: var(--bg-card-hover);
+    border-color: var(--border-accent);
+    color: var(--text-primary);
+  }
+
+  /* Tax lot badges */
+  .lot-badge {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+    margin-right: 3px;
+  }
+  .lot-long { background: rgba(96,165,250,0.12); color: var(--accent-blue); }
+  .lot-short { background: rgba(251,191,36,0.12); color: var(--accent-amber); }
+  .lot-add {
+    font-size: 10px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 1px 4px;
+    border-radius: 3px;
+    border: 1px dashed var(--border-accent);
+    background: none;
+    font-family: var(--font-mono);
+  }
+  .lot-add:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+  .selected-row td { background: rgba(96,165,250,0.05) !important; }
+
+  /* Closed positions form */
+  .form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 10px;
+  }
+  .form-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .form-input {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-accent);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    width: 100%;
+  }
+  .form-input:focus {
+    outline: none;
+    border-color: var(--accent-blue);
+  }
+  .form-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  /* Sidebar */
+  .sidebar-panels { display: flex; flex-direction: column; gap: 16px; }
+
+  .breakdown-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(30,42,58,0.4);
+  }
+  .breakdown-item:last-child { border-bottom: none; }
+  .breakdown-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-transform: capitalize;
+  }
+  .breakdown-value {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .breakdown-bar-wrap {
+    flex: 1;
+    margin: 0 14px;
+    height: 4px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .breakdown-bar {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+
+  /* Upload zone */
+  .upload-zone {
+    border: 2px dashed var(--border-accent);
+    border-radius: 8px;
+    padding: 28px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin: 16px;
+  }
+  .upload-zone:hover {
+    border-color: var(--accent-blue);
+    background: var(--accent-blue-bg);
+  }
+  .upload-zone p {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .upload-zone .upload-icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+    opacity: 0.4;
+  }
+
+  /* Status dot */
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+  }
+  .status-live { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+  .status-csv { background: var(--accent-amber); }
+
+  /* Empty state */
+  .empty-state {
+    padding: 60px 20px;
+    text-align: center;
+  }
+  .empty-state h3 {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+  }
+  .empty-state p {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  /* Loading */
+  .loading-pulse {
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    z-index: 100;
+    animation: slideUp 0.3s ease;
+  }
+  .toast-success { background: var(--accent-green); color: #0a0e17; }
+  .toast-error { background: var(--accent-red); color: #0a0e17; }
+  @keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  @media (max-width: 1024px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .content-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 600px) {
+    .app-container { padding: 16px; }
+    .stats-grid { grid-template-columns: 1fr; }
+  }
+
+  /* Goal Progress Bar */
+  .goal-bar-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 28px;
+  }
+  .goal-bar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .goal-bar-title {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+  }
+  .goal-bar-pct {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -1px;
+  }
+  .goal-bar-track {
+    height: 10px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .goal-bar-fill-realized {
+    height: 100%;
+    background: var(--accent-green);
+    border-radius: 6px 0 0 6px;
+    transition: width 0.6s ease;
+    position: absolute;
+    left: 0;
+  }
+  .goal-bar-fill-unrealized {
+    height: 100%;
+    background: var(--accent-blue);
+    opacity: 0.75;
+    transition: all 0.6s ease;
+    position: absolute;
+  }
+  .goal-bar-stats {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+  .goal-stat { display: flex; flex-direction: column; gap: 3px; }
+  .goal-stat-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+  }
+  .goal-stat-value {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .goal-edit-btn {
+    background: none;
+    border: 1px dashed var(--border-accent);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-left: 8px;
+  }
+  .goal-edit-btn:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+  .goal-input {
+    background: var(--bg-primary);
+    border: 1px solid var(--accent-blue);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 3px 8px;
+    width: 130px;
+  }
+  .goal-input:focus { outline: none; }
+
+  /* ── Portfolio History Chart ─────────────────── */
+  .hist-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-top: 20px; }
+  .hist-chart { width: 100%; display: block; }
+  .hist-form-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; padding: 12px 16px; border-top: 1px solid var(--border); background: rgba(255,255,255,0.01); }
+  .hist-entry-list { padding: 8px 16px 12px; }
+  .hist-entry-item { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid rgba(30,42,58,0.3); font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+  .hist-entry-item:last-child { border-bottom: none; }
+
+  /* ── Signals Tab ─────────────────────────────── */
+  .content-grid.signals-full { grid-template-columns: 1fr; }
+
+  .signals-toolbar {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    background: rgba(255,255,255,0.01);
+  }
+  .signals-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 16px;
+    padding: 16px;
+  }
+  .signal-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .signal-card:hover { border-color: var(--border-accent); }
+  .signal-card-header {
+    padding: 13px 16px 11px;
+    border-bottom: 1px solid var(--border);
+  }
+  .signal-row {
+    padding: 9px 16px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    border-bottom: 1px solid rgba(30,42,58,0.4);
+  }
+  .signal-row:last-child { border-bottom: none; }
+  .signal-indicators-toggle {
+    width: 100%;
+    padding: 7px 16px;
+    background: none;
+    border: none;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    transition: color 0.15s;
+  }
+  .signal-indicators-toggle:hover { color: var(--text-secondary); }
+  .signal-indicators-grid {
+    padding: 10px 16px 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 22px;
+    border-top: 1px solid rgba(30,42,58,0.35);
+  }
+  .ind-item { display: flex; flex-direction: column; gap: 3px; }
+  .ind-label {
+    font-size: 9px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  .ind-value {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .scan-progress {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent-blue);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+const API = '';
+
+function formatMoney(n) {
+  if (n == null || isNaN(n)) return '$0.00';
+  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+function formatPct(n) {
+  if (n == null || isNaN(n)) return '0.00%';
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+
+// Slice dates+closes arrays to only include points within the chosen range
+function filterByRange(dates, closes, rangeKey) {
+  if (!dates || !closes || dates.length === 0) return { dates, closes };
+  const today = new Date();
+  let cutStr = null;
+  if (rangeKey === '1W') cutStr = new Date(today - 7 * 86400000).toISOString().slice(0, 10);
+  else if (rangeKey === '1M') cutStr = new Date(today - 30 * 86400000).toISOString().slice(0, 10);
+  else if (rangeKey === '3M') cutStr = new Date(today - 90 * 86400000).toISOString().slice(0, 10);
+  else if (rangeKey === 'YTD') cutStr = `${today.getFullYear()}-01-01`;
+  // 'All' → no cutoff
+  if (!cutStr) return { dates, closes };
+  const startIdx = dates.findIndex(d => d >= cutStr);
+  if (startIdx === -1) return { dates: [], closes: [] };
+  return { dates: dates.slice(startIdx), closes: closes.slice(startIdx) };
+}
+
+function DateRangeFilter({ value, onChange }) {
+  const opts = ['1W', '1M', '3M', 'YTD', 'All'];
+  return (
+    <div style={{ display: 'flex', gap: '3px' }}>
+      {opts.map(o => (
+        <button key={o} className={`tab-btn${value === o ? ' active' : ''}`}
+          onClick={() => onChange(o)}
+          style={{ fontSize: '10px', padding: '4px 9px' }}>{o}</button>
+      ))}
+    </div>
+  );
+}
+
+// Pure SVG line — driven by an external hover index
+function SparklineInner({ values, width, height, color, hover, showZeroLine = false }) {
+  const pad = 2;
+  const min = showZeroLine ? Math.min(0, ...values) : Math.min(...values);
+  const max = showZeroLine ? Math.max(0, ...values) : Math.max(...values);
+  const range = max - min || 1;
+  const toY = v => (height - pad) - ((v - min) / range) * (height - pad * 2) + pad;
+  const toX = i => (i / (values.length - 1)) * width;
+  const pts = values.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ');
+  const hx = hover != null ? toX(hover) : null;
+  const hy = hover != null ? toY(values[hover]) : null;
+  return (
+    <svg width={width} height={height} style={{display:'block', overflow:'visible'}}>
+      {showZeroLine && min < 0 && max > 0 && (
+        <line x1="0" x2={width} y1={toY(0).toFixed(1)} y2={toY(0).toFixed(1)}
+          stroke="rgba(255,255,255,0.12)" strokeWidth="1" strokeDasharray="2,2" />
+      )}
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5"
+        strokeLinejoin="round" strokeLinecap="round" />
+      {hx != null && (
+        <>
+          <line x1={hx.toFixed(1)} x2={hx.toFixed(1)} y1="0" y2={height}
+            stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
+          <circle cx={hx.toFixed(1)} cy={hy.toFixed(1)} r="2.5"
+            fill={color} stroke="var(--bg-card)" strokeWidth="1.5" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+// Interactive container: handles mouse, owns hover state, renders two stacked lines + tooltip
+function PositionSparklines({ closes, dates, avgCost, quantity, width = 88 }) {
+  const [hover, setHover] = React.useState(null); // { idx, cx, cy }
+  const ref = React.useRef(null);
+  const H = 22;
+
+  const pnlValues = avgCost > 0 ? closes.map(c => (c - avgCost) * quantity) : null;
+  const priceUp = closes[closes.length - 1] >= closes[0];
+  const pnlFinal = pnlValues ? pnlValues[pnlValues.length - 1] : 0;
+  const priceColor = priceUp ? 'var(--accent-green)' : 'var(--accent-red)';
+  const pnlColor = pnlFinal >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+
+  const onMove = e => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const idx = Math.max(0, Math.min(closes.length - 1,
+      Math.round(((e.clientX - rect.left) / rect.width) * (closes.length - 1))
+    ));
+    setHover({ idx, cx: e.clientX, cy: e.clientY });
+  };
+
+  return (
+    <div ref={ref} style={{display:'inline-flex', flexDirection:'column', gap:'5px', cursor:'crosshair', position:'relative'}}
+      onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+      <div style={{display:'flex', alignItems:'center', gap:'5px'}}>
+        <span style={{fontSize:'8px', fontFamily:'var(--font-mono)', color:'var(--text-muted)', width:'20px', textAlign:'right', lineHeight:1}}>px</span>
+        <SparklineInner values={closes} width={width} height={H} color={priceColor} hover={hover?.idx} />
+      </div>
+      <div style={{display:'flex', alignItems:'center', gap:'5px'}}>
+        <span style={{fontSize:'8px', fontFamily:'var(--font-mono)', color:'var(--text-muted)', width:'20px', textAlign:'right', lineHeight:1}}>p&l</span>
+        <SparklineInner values={pnlValues || closes.map(() => 0)} width={width} height={H}
+          color={pnlColor} hover={hover?.idx} showZeroLine />
+      </div>
+      {hover && (
+        <div style={{
+          position:'fixed', left: hover.cx + 14, top: hover.cy - 54,
+          background:'var(--bg-card)', border:'1px solid var(--border-accent)',
+          borderRadius:'6px', padding:'7px 11px', fontFamily:'var(--font-mono)',
+          fontSize:'11px', zIndex:9999, pointerEvents:'none', whiteSpace:'nowrap',
+          boxShadow:'0 4px 16px rgba(0,0,0,0.5)',
+        }}>
+          {dates?.[hover.idx] && <div style={{color:'var(--text-muted)', fontSize:'9px', marginBottom:'5px', letterSpacing:'0.3px'}}>{dates[hover.idx]}</div>}
+          <div style={{display:'flex', flexDirection:'column', gap:'3px'}}>
+            <div style={{display:'flex', justifyContent:'space-between', gap:'18px'}}>
+              <span style={{color:'var(--text-muted)'}}>Price</span>
+              <span style={{color:priceColor, fontWeight:600}}>{formatMoney(closes[hover.idx])}</span>
+            </div>
+            {pnlValues && (
+              <div style={{display:'flex', justifyContent:'space-between', gap:'18px'}}>
+                <span style={{color:'var(--text-muted)'}}>P&amp;L</span>
+                <span style={{color:pnlColor, fontWeight:600}}>{formatMoney(pnlValues[hover.idx])}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Full-width interactive portfolio gain/loss chart with date range filter
+function OverallTrend30D({ positions, priceHistory, dateRange, onRangeChange }) {
+  const [hover, setHover] = React.useState(null);
+  const svgRef = React.useRef(null);
+
+  const { dates, gains, totalValues } = React.useMemo(() => {
+    const stockPos = positions.filter(p => p.asset_type !== 'cash' && p.average_cost > 0);
+    if (!stockPos.length || !Object.keys(priceHistory).length) return { dates: [], gains: [], totalValues: [] };
+
+    // Compute cutoff date string based on selected range
+    const today = new Date();
+    let cutStr = null;
+    if (dateRange === '1W') cutStr = new Date(today - 7 * 86400000).toISOString().slice(0, 10);
+    else if (dateRange === '1M') cutStr = new Date(today - 30 * 86400000).toISOString().slice(0, 10);
+    else if (dateRange === '3M') cutStr = new Date(today - 90 * 86400000).toISOString().slice(0, 10);
+    else if (dateRange === 'YTD') cutStr = `${today.getFullYear()}-01-01`;
+
+    // Build { symbol → { date → close } } lookup, filtered to range
+    const byDate = {};
+    Object.entries(priceHistory).forEach(([sym, { dates: ds, closes: cs }]) => {
+      byDate[sym] = {};
+      ds.forEach((d, i) => {
+        if (!cutStr || d >= cutStr) byDate[sym][d] = cs[i];
+      });
+    });
+
+    // All unique trading dates in range, sorted ascending
+    const allDates = [...new Set(Object.values(byDate).flatMap(m => Object.keys(m)))].sort();
+    const totalCost = stockPos.reduce((s, p) => s + p.quantity * p.average_cost, 0);
+
+    const dates = [], gains = [], totalValues = [];
+    allDates.forEach(date => {
+      let val = 0, count = 0;
+      stockPos.forEach(p => {
+        const c = byDate[p.symbol]?.[date];
+        if (c != null) { val += c * p.quantity; count++; }
+      });
+      // Only include day if at least half the positions have data
+      if (count >= Math.max(1, stockPos.length * 0.5)) {
+        dates.push(date);
+        gains.push(val - totalCost);
+        totalValues.push(val);
+      }
+    });
+    return { dates, gains, totalValues };
+  }, [positions, priceHistory, dateRange]);
+
+  if (dates.length < 3) return null;
+
+  const rangeLabel = { '1W': '7D', '1M': '30D', '3M': '3M', 'YTD': 'YTD', 'All': 'All' }[dateRange] || dateRange;
+  const VW = 1000, H = 88, pad = { t: 8, r: 12, b: 8, l: 12 };
+  const min = Math.min(0, ...gains);
+  const max = Math.max(0, ...gains);
+  const range = max - min || 1;
+  const toX = i => pad.l + (i / (gains.length - 1)) * (VW - pad.l - pad.r);
+  const toY = v => (H - pad.b) - ((v - min) / range) * (H - pad.t - pad.b) + pad.t;
+  const zeroY = toY(0);
+  const isUp = gains[gains.length - 1] >= gains[0];
+  const lineColor = isUp ? 'var(--accent-green)' : 'var(--accent-red)';
+  const fillColor = isUp ? 'rgba(52,211,153,0.07)' : 'rgba(248,113,113,0.07)';
+
+  const linePts = gains.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ');
+  const areaD = `M${toX(0).toFixed(1)},${zeroY.toFixed(1)} `
+    + gains.map((v, i) => `L${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ')
+    + ` L${toX(gains.length - 1).toFixed(1)},${zeroY.toFixed(1)} Z`;
+
+  const onMove = e => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const rel = (e.clientX - rect.left) / rect.width;
+    const idx = Math.max(0, Math.min(gains.length - 1, Math.round(rel * (gains.length - 1))));
+    setHover({ idx, cx: e.clientX, cy: e.clientY });
+  };
+
+  const hx = hover ? toX(hover.idx) : null;
+  const hy = hover ? toY(gains[hover.idx]) : null;
+  const hGain = hover ? gains[hover.idx] : null;
+  const hVal  = hover ? totalValues[hover.idx] : null;
+
+  return (
+    <div className="panel" style={{ marginBottom: '20px' }}>
+      <div className="panel-header" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span className="panel-title">Portfolio {rangeLabel} Gain/Loss</span>
+          <DateRangeFilter value={dateRange} onChange={onRangeChange} />
+        </div>
+        {hover ? (
+          <div style={{ fontFamily:'var(--font-mono)', fontSize:'12px', display:'flex', gap:'16px', alignItems:'center' }}>
+            <span style={{ color:'var(--text-muted)', fontSize:'10px' }}>{dates[hover.idx]}</span>
+            <span style={{ color:'var(--text-muted)', fontSize:'10px' }}>Value <span style={{color:'var(--text-primary)', fontWeight:600}}>{formatMoney(hVal)}</span></span>
+            <span style={{ color: hGain >= 0 ? 'var(--accent-green)' : 'var(--accent-red)', fontWeight: 700 }}>{hGain >= 0 ? '+' : ''}{formatMoney(hGain)}</span>
+          </div>
+        ) : (
+          <span style={{ fontFamily:'var(--font-mono)', fontSize:'10px', color:'var(--text-muted)' }}>
+            {dates[0]} – {dates[dates.length - 1]}
+          </span>
+        )}
+      </div>
+      <svg ref={svgRef} viewBox={`0 0 ${VW} ${H}`} preserveAspectRatio="none"
+        style={{ width:'100%', height:`${H}px`, display:'block', cursor:'crosshair' }}
+        onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+        {/* zero line */}
+        <line x1={pad.l} x2={VW - pad.r} y1={zeroY.toFixed(1)} y2={zeroY.toFixed(1)}
+          stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+        {/* area fill */}
+        <path d={areaD} fill={fillColor} />
+        {/* line */}
+        <polyline points={linePts} fill="none" stroke={lineColor} strokeWidth="2"
+          strokeLinejoin="round" strokeLinecap="round" />
+        {/* hover */}
+        {hover && (
+          <>
+            <line x1={hx.toFixed(1)} x2={hx.toFixed(1)} y1={pad.t} y2={H - pad.b}
+              stroke="rgba(255,255,255,0.18)" strokeWidth="1" strokeDasharray="3,3" />
+            <circle cx={hx.toFixed(1)} cy={hy.toFixed(1)} r="4"
+              fill={lineColor} stroke="var(--bg-card)" strokeWidth="2" />
+          </>
+        )}
+      </svg>
+      {/* X-axis date labels */}
+      <div style={{ display:'flex', justifyContent:'space-between', padding:'4px 14px 10px',
+        fontFamily:'var(--font-mono)', fontSize:'9px', color:'var(--text-muted)' }}>
+        <span>{dates[0]}</span>
+        <span>{dates[Math.floor(dates.length / 2)]}</span>
+        <span>{dates[dates.length - 1]}</span>
+      </div>
+    </div>
+  );
+}
+
+function Toast({ message, type, onClose }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 3000);
+    return () => clearTimeout(t);
+  }, []);
+  return <div className={`toast toast-${type}`}>{message}</div>;
+}
+
+function StatCard({ label, value, sub, subClass }) {
+  return (
+    <div className="stat-card">
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
+      {sub && <div className={`stat-sub ${subClass || ''}`}>{sub}</div>}
+    </div>
+  );
+}
+
+function PositionsTable({ positions, taxLots, selectedKey, onSelectPosition, priceHistory, dateRange }) {
+  const sorted = [...positions].sort((a, b) => b.market_value - a.market_value);
+
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Broker</th>
+          <th>Qty</th>
+          <th>Avg Cost</th>
+          <th>Price</th>
+          <th>Value</th>
+          <th>Gain/Loss</th>
+          <th>Tax Lots</th>
+          <th style={{textAlign:'center'}}>30d Trends</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((p, i) => {
+          const isCash = p.asset_type === 'cash';
+          const key = `${p.symbol}-${p.broker}`;
+          const isSelected = selectedKey === key;
+          const lots = isCash ? [] : (taxLots[key] || []);
+          const ltCount = lots.filter(l => l.holding_period === 'long').length;
+          const stCount = lots.filter(l => l.holding_period === 'short').length;
+          const hist = !isCash ? (priceHistory[p.symbol] || null) : null;
+          const rawCloses = hist?.closes || null;
+          const rawDates = hist?.dates || null;
+          const { dates: histDates, closes } = rawCloses
+            ? filterByRange(rawDates, rawCloses, dateRange)
+            : { dates: null, closes: null };
+          return (
+            <tr
+              key={`${key}-${i}`}
+              className={isSelected ? 'selected-row' : ''}
+              style={isCash ? { opacity: 0.75 } : { cursor: 'pointer' }}
+              onClick={() => !isCash && onSelectPosition(p)}
+            >
+              <td>
+                <div className="symbol-cell">
+                  <span className="symbol-ticker" style={isCash ? { color: 'var(--accent-amber)' } : {}}>{p.symbol}</span>
+                  <span className="symbol-name">{isCash ? 'Cash Balance' : p.name}</span>
+                </div>
+              </td>
+              <td><span className={`broker-tag broker-${p.broker}`}>{p.broker}</span></td>
+              <td style={{ color: 'var(--text-muted)' }}>{isCash ? '—' : p.quantity}</td>
+              <td style={{ color: 'var(--text-muted)' }}>{isCash ? '—' : formatMoney(p.average_cost)}</td>
+              <td style={{ color: 'var(--text-muted)' }}>{isCash ? '—' : formatMoney(p.current_price)}</td>
+              <td>{formatMoney(p.market_value)}</td>
+              <td className={isCash ? '' : (p.unrealized_gain >= 0 ? 'positive' : 'negative')}
+                  style={isCash ? { color: 'var(--text-muted)' } : {}}>
+                {isCash ? '—' : (<>{formatMoney(p.unrealized_gain)}<br/><span style={{fontSize:'10px'}}>{formatPct(p.unrealized_gain_pct)}</span></>)}
+              </td>
+              <td>
+                {isCash ? <span style={{color:'var(--text-muted)'}}>—</span> : (
+                  lots.length === 0
+                    ? <button className="lot-add" onClick={e => { e.stopPropagation(); onSelectPosition(p); }}>+ add lot</button>
+                    : <>
+                        {ltCount > 0 && <span className="lot-badge lot-long">{ltCount} LT</span>}
+                        {stCount > 0 && <span className="lot-badge lot-short">{stCount} ST</span>}
+                      </>
+                )}
+              </td>
+              <td style={{textAlign:'center', verticalAlign:'middle'}}>
+                {isCash ? (
+                  <span style={{color:'var(--text-muted)'}}>—</span>
+                ) : closes ? (
+                  <PositionSparklines
+                    closes={closes}
+                    dates={histDates}
+                    avgCost={p.average_cost}
+                    quantity={p.quantity}
+                  />
+                ) : (
+                  <span style={{color:'var(--text-muted)', fontSize:'9px', fontFamily:'var(--font-mono)'}}>…</span>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function BrokerBreakdown({ breakdown, total }) {
+  const colors = { robinhood: '#34d399', etrade: '#60a5fa', csv: '#fbbf24' };
+  return (
+    <div>
+      {Object.entries(breakdown).map(([broker, value]) => (
+        <div className="breakdown-item" key={broker}>
+          <span className="breakdown-label">
+            <span className="status-dot" style={{background: colors[broker] || '#888'}}></span>
+            {broker}
+          </span>
+          <div className="breakdown-bar-wrap">
+            <div
+              className="breakdown-bar"
+              style={{
+                width: total > 0 ? `${(value/total)*100}%` : '0%',
+                background: colors[broker] || '#888',
+              }}
+            />
+          </div>
+          <span className="breakdown-value">{formatMoney(value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function UploadPanel({ onUpload }) {
+  const fileRef = useRef();
+  const [broker, setBroker] = useState('csv');
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    onUpload(form, broker);
+    fileRef.current.value = '';
+  };
+
+  return (
+    <div>
+      <div style={{padding:'12px 16px', display:'flex', gap:'8px', alignItems:'center'}}>
+        <select
+          value={broker}
+          onChange={e => setBroker(e.target.value)}
+          style={{
+            background:'var(--bg-primary)', color:'var(--text-secondary)',
+            border:'1px solid var(--border-accent)', borderRadius:'4px',
+            padding:'4px 8px', fontFamily:'var(--font-mono)', fontSize:'11px'
+          }}
+        >
+          <option value="csv">Generic CSV</option>
+          <option value="robinhood">Robinhood</option>
+          <option value="etrade">E*Trade</option>
+        </select>
+      </div>
+      <div className="upload-zone" onClick={() => fileRef.current.click()}>
+        <div className="upload-icon">↑</div>
+        <p>Drop CSV or click to upload</p>
+        <input ref={fileRef} type="file" accept=".csv" hidden onChange={handleFile} />
+      </div>
+    </div>
+  );
+}
+
+function CashPanel({ onSave }) {
+  const brokers = ['etrade', 'robinhood'];
+  const [amounts, setAmounts] = React.useState({ etrade: '', robinhood: '' });
+  const [saved, setSaved] = React.useState({});
+
+  useEffect(() => {
+    fetch('/api/cash').then(r => r.json()).then(data => {
+      const m = {};
+      data.forEach(({ broker, amount }) => { m[broker] = amount; });
+      setAmounts(prev => ({ ...prev, ...Object.fromEntries(Object.entries(m).map(([k,v]) => [k, v])) }));
+    });
+  }, []);
+
+  const handleSave = async (broker) => {
+    const amount = parseFloat(amounts[broker]) || 0;
+    await fetch('/api/cash', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ broker, amount }),
+    });
+    setSaved(s => ({ ...s, [broker]: true }));
+    setTimeout(() => setSaved(s => ({ ...s, [broker]: false })), 1500);
+    onSave();
+  };
+
+  return (
+    <div style={{ padding: '4px 0' }}>
+      {brokers.map(broker => (
+        <div key={broker} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderBottom: '1px solid rgba(30,42,58,0.4)' }}>
+          <span className={`broker-tag broker-${broker}`} style={{ minWidth: '72px' }}>{broker}</span>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={amounts[broker]}
+            onChange={e => setAmounts(a => ({ ...a, [broker]: e.target.value }))}
+            placeholder="0.00"
+            style={{
+              flex: 1, background: 'var(--bg-primary)', color: 'var(--text-primary)',
+              border: '1px solid var(--border-accent)', borderRadius: '4px',
+              padding: '5px 8px', fontFamily: 'var(--font-mono)', fontSize: '12px',
+            }}
+          />
+          <button
+            className="btn"
+            style={{ padding: '5px 10px', fontSize: '11px', minWidth: '48px',
+              ...(saved[broker] ? { borderColor: 'var(--accent-green)', color: 'var(--accent-green)' } : {}) }}
+            onClick={() => handleSave(broker)}
+          >
+            {saved[broker] ? '✓' : 'Set'}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TopHoldings({ positions }) {
+  const top5 = [...positions]
+    .filter(p => p.asset_type !== 'cash')
+    .sort((a, b) => b.market_value - a.market_value)
+    .slice(0, 5);
+  const total = positions.reduce((s, p) => s + p.market_value, 0);
+
+  return (
+    <div>
+      {top5.map((p, i) => (
+        <div className="breakdown-item" key={p.symbol + p.broker}>
+          <span className="breakdown-label" style={{minWidth:'52px'}}>
+            <span style={{color:'var(--text-primary)', fontWeight:600}}>{p.symbol}</span>
+          </span>
+          <div className="breakdown-bar-wrap">
+            <div
+              className="breakdown-bar"
+              style={{
+                width: total > 0 ? `${(p.market_value/total)*100}%` : '0%',
+                background: `hsl(${210 + i*30}, 70%, 60%)`,
+              }}
+            />
+          </div>
+          <span className="breakdown-value">
+            {total > 0 ? ((p.market_value/total)*100).toFixed(1) + '%' : '—'}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TaxLotsPanel({ position, lots, onRefresh }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = React.useState({ quantity: '', cost_basis: '', acquired_at: '' });
+  const [saving, setSaving] = React.useState(false);
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    if (!form.quantity || !form.cost_basis || !form.acquired_at) return;
+    setSaving(true);
+    try {
+      await fetch('/api/tax-lots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: position.symbol,
+          broker: position.broker,
+          quantity: parseFloat(form.quantity),
+          cost_basis: parseFloat(form.cost_basis),
+          acquired_at: form.acquired_at,
+        }),
+      });
+      setForm({ quantity: '', cost_basis: '', acquired_at: '' });
+      onRefresh();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    await fetch(`/api/tax-lots/${id}`, { method: 'DELETE' });
+    onRefresh();
+  };
+
+  const totalShares = lots.reduce((s, l) => s + l.quantity, 0);
+  const ltShares = lots.filter(l => l.holding_period === 'long').reduce((s, l) => s + l.quantity, 0);
+  const stShares = lots.filter(l => l.holding_period === 'short').reduce((s, l) => s + l.quantity, 0);
+
+  return (
+    <div style={{ padding: '12px 16px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+        <div>
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '14px' }}>{position.symbol}</span>
+          <span className={`broker-tag broker-${position.broker}`} style={{ marginLeft: '8px' }}>{position.broker}</span>
+        </div>
+        {lots.length > 0 && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', textAlign: 'right' }}>
+            {ltShares > 0 && <><span className="lot-badge lot-long">{ltShares.toFixed(4).replace(/\.?0+$/, '')} LT</span></>}
+            {stShares > 0 && <><span className="lot-badge lot-short">{stShares.toFixed(4).replace(/\.?0+$/, '')} ST</span></>}
+          </div>
+        )}
+      </div>
+
+      {/* Existing lots */}
+      {lots.length > 0 && (
+        <div style={{ marginBottom: '14px', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'left', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Date</th>
+                <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'right', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Shares</th>
+                <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'right', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Cost</th>
+                <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Term</th>
+                <th style={{ padding: '7px 6px', borderBottom: '1px solid var(--border)' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {lots.map(lot => (
+                <tr key={lot.id} style={{ borderBottom: '1px solid rgba(30,42,58,0.4)' }}>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '7px 10px', color: 'var(--text-secondary)' }}>{lot.acquired_at}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '7px 10px', textAlign: 'right', color: 'var(--text-primary)' }}>{lot.quantity}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '7px 10px', textAlign: 'right', color: 'var(--text-primary)' }}>{formatMoney(lot.cost_basis)}</td>
+                  <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                    <span className={`lot-badge ${lot.holding_period === 'long' ? 'lot-long' : 'lot-short'}`}>
+                      {lot.holding_period === 'long' ? 'LT' : 'ST'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '7px 6px', textAlign: 'center' }}>
+                    <button onClick={() => handleDelete(lot.id)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '13px', padding: '0 2px' }}>×</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Add lot form */}
+      <form onSubmit={handleAdd}>
+        <div style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+          Add Lot
+        </div>
+        <div className="form-grid-2" style={{ marginBottom: '8px' }}>
+          <div className="form-row">
+            <label className="form-label">Shares *</label>
+            <input className="form-input" type="number" min="0" step="any" placeholder="0" value={form.quantity} onChange={e => set('quantity', e.target.value)} required />
+          </div>
+          <div className="form-row">
+            <label className="form-label">Price Paid *</label>
+            <input className="form-input" type="number" min="0" step="any" placeholder="0.00" value={form.cost_basis} onChange={e => set('cost_basis', e.target.value)} required />
+          </div>
+        </div>
+        <div className="form-row" style={{ marginBottom: '10px' }}>
+          <label className="form-label">Purchase Date *</label>
+          <input className="form-input" type="date" max={today} value={form.acquired_at} onChange={e => set('acquired_at', e.target.value)} required />
+        </div>
+        <button type="submit" className="btn btn-primary" style={{ width: '100%', fontSize: '11px' }} disabled={saving}>
+          {saving ? 'Saving…' : 'Add Lot'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function ClosedPositionsTable({ positions, onDelete }) {
+  const sorted = [...positions].sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at));
+  if (sorted.length === 0) {
+    return (
+      <div className="empty-state">
+        <h3>No closed positions</h3>
+        <p>Log a sold position using the form on the right.</p>
+      </div>
+    );
+  }
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Broker</th>
+          <th>Qty</th>
+          <th>Avg Cost</th>
+          <th>Close Price</th>
+          <th>Realized Gain</th>
+          <th>Acquired</th>
+          <th>Closed</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((p) => (
+          <tr key={p.id}>
+            <td>
+              <div className="symbol-cell">
+                <span className="symbol-ticker">{p.symbol}</span>
+                <span className="symbol-name">{p.name}</span>
+              </div>
+            </td>
+            <td><span className={`broker-tag broker-${p.broker}`}>{p.broker}</span></td>
+            <td style={{color:'var(--text-muted)'}}>{p.quantity}</td>
+            <td style={{color:'var(--text-muted)'}}>{formatMoney(p.average_cost)}</td>
+            <td style={{color:'var(--text-muted)'}}>{formatMoney(p.close_price)}</td>
+            <td className={p.realized_gain >= 0 ? 'positive' : 'negative'}>
+              {formatMoney(p.realized_gain)}
+              <br/>
+              <span style={{fontSize:'10px'}}>{formatPct(p.realized_gain_pct)}</span>
+            </td>
+            <td style={{color:'var(--text-muted)', fontSize:'11px'}}>{p.acquired_at || '—'}</td>
+            <td style={{color:'var(--text-muted)', fontSize:'11px'}}>{p.closed_at}</td>
+            <td>
+              <button
+                onClick={() => onDelete(p.id)}
+                style={{
+                  background:'none', border:'none', cursor:'pointer',
+                  color:'var(--text-muted)', fontSize:'14px', padding:'2px 4px'
+                }}
+                title="Remove"
+              >×</button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function AddClosedPositionForm({ onAdd }) {
+  const empty = { symbol:'', name:'', broker:'robinhood', quantity:'', average_cost:'', close_price:'', acquired_at:'', closed_at: new Date().toISOString().slice(0,10) };
+  const [form, setForm] = React.useState(empty);
+  const [saving, setSaving] = React.useState(false);
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.symbol || !form.quantity || !form.average_cost || !form.close_price) return;
+    setSaving(true);
+    try {
+      const res = await fetch('/api/closed-positions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: form.symbol.toUpperCase(),
+          name: form.name,
+          broker: form.broker,
+          quantity: parseFloat(form.quantity),
+          average_cost: parseFloat(form.average_cost),
+          close_price: parseFloat(form.close_price),
+          acquired_at: form.acquired_at || null,
+          closed_at: form.closed_at,
+        }),
+      });
+      if (res.ok) {
+        setForm(empty);
+        onAdd();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} style={{padding:'14px 16px'}}>
+      <div className="form-grid-2">
+        <div className="form-row">
+          <label className="form-label">Symbol *</label>
+          <input className="form-input" placeholder="e.g. AAPL" value={form.symbol} onChange={e => set('symbol', e.target.value)} required />
+        </div>
+        <div className="form-row">
+          <label className="form-label">Broker *</label>
+          <select className="form-input" value={form.broker} onChange={e => set('broker', e.target.value)}>
+            <option value="robinhood">Robinhood</option>
+            <option value="etrade">E*Trade</option>
+            <option value="csv">Other</option>
+          </select>
+        </div>
+      </div>
+      <div className="form-row">
+        <label className="form-label">Name (optional)</label>
+        <input className="form-input" placeholder="Company name" value={form.name} onChange={e => set('name', e.target.value)} />
+      </div>
+      <div className="form-grid-2">
+        <div className="form-row">
+          <label className="form-label">Shares *</label>
+          <input className="form-input" type="number" min="0" step="any" placeholder="0" value={form.quantity} onChange={e => set('quantity', e.target.value)} required />
+        </div>
+        <div className="form-row">
+          <label className="form-label">Avg Cost *</label>
+          <input className="form-input" type="number" min="0" step="any" placeholder="0.00" value={form.average_cost} onChange={e => set('average_cost', e.target.value)} required />
+        </div>
+      </div>
+      <div className="form-row">
+        <label className="form-label">Close Price *</label>
+        <input className="form-input" type="number" min="0" step="any" placeholder="Price sold at" value={form.close_price} onChange={e => set('close_price', e.target.value)} required />
+      </div>
+      <div className="form-grid-2">
+        <div className="form-row">
+          <label className="form-label">Acquired</label>
+          <input className="form-input" type="date" value={form.acquired_at} onChange={e => set('acquired_at', e.target.value)} />
+        </div>
+        <div className="form-row">
+          <label className="form-label">Closed *</label>
+          <input className="form-input" type="date" value={form.closed_at} onChange={e => set('closed_at', e.target.value)} required />
+        </div>
+      </div>
+      <button type="submit" className="btn btn-primary" style={{width:'100%', marginTop:'4px'}} disabled={saving}>
+        {saving ? 'Saving…' : 'Log Closed Position'}
+      </button>
+    </form>
+  );
+}
+
+function PnLTimeline({ closedPositions }) {
+  const [view, setView] = React.useState('year');
+  const [expanded, setExpanded] = React.useState(new Set());
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  const yearMap = React.useMemo(() => {
+    const map = {};
+    closedPositions.forEach(p => {
+      if (!p.closed_at) return;
+      const year = p.closed_at.slice(0, 4);
+      const ym = p.closed_at.slice(0, 7);
+      if (!map[year]) map[year] = { net: 0, gains: 0, losses: 0, count: 0, months: {} };
+      if (!map[year].months[ym]) map[year].months[ym] = { net: 0, gains: 0, losses: 0, count: 0 };
+      const g = p.realized_gain;
+      map[year].net += g; map[year].count += 1;
+      if (g >= 0) map[year].gains += g; else map[year].losses += g;
+      map[year].months[ym].net += g; map[year].months[ym].count += 1;
+      if (g >= 0) map[year].months[ym].gains += g; else map[year].months[ym].losses += g;
+    });
+    return map;
+  }, [closedPositions]);
+
+  if (closedPositions.length === 0) return null;
+
+  const years = Object.keys(yearMap).sort((a, b) => b - a);
+  const allNet = closedPositions.reduce((s, p) => s + p.realized_gain, 0);
+  const allGains = closedPositions.filter(p => p.realized_gain > 0).reduce((s, p) => s + p.realized_gain, 0);
+  const allLosses = closedPositions.filter(p => p.realized_gain < 0).reduce((s, p) => s + p.realized_gain, 0);
+
+  const allMonths = [];
+  years.slice().reverse().forEach(yr => {
+    Object.keys(yearMap[yr].months).sort().forEach(ym => {
+      allMonths.push({ ym, ...yearMap[yr].months[ym] });
+    });
+  });
+  const maxAbs = Math.max(...allMonths.map(m => Math.max(Math.abs(m.gains || 0), Math.abs(m.losses || 0), Math.abs(m.net))), 1);
+  const HALF_H = 90;
+
+  const toggleYear = (yr) => setExpanded(prev => {
+    const next = new Set(prev);
+    if (next.has(yr)) next.delete(yr); else next.add(yr);
+    return next;
+  });
+
+  return (
+    <div className="panel" style={{ marginTop: '20px' }}>
+      <div className="panel-header">
+        <span className="panel-title">P&amp;L Timeline</span>
+        <div className="tab-bar">
+          <button className={`tab-btn${view === 'year' ? ' active' : ''}`} onClick={() => setView('year')}>By Year</button>
+          <button className={`tab-btn${view === 'month' ? ' active' : ''}`} onClick={() => setView('month')}>By Month</button>
+        </div>
+      </div>
+
+      {view === 'year' ? (
+        <table>
+          <thead>
+            <tr>
+              <th>Period</th>
+              <th>Trades</th>
+              <th>Gains</th>
+              <th>Losses</th>
+              <th>Net P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody>
+            {years.map(yr => (
+              <React.Fragment key={yr}>
+                <tr onClick={() => toggleYear(yr)} style={{ cursor: 'pointer' }}>
+                  <td style={{ fontWeight: 600 }}>
+                    <span style={{ marginRight: '8px', color: 'var(--text-muted)', fontSize: '10px', display: 'inline-block', width: '8px' }}>
+                      {expanded.has(yr) ? '▼' : '▶'}
+                    </span>
+                    {yr}
+                  </td>
+                  <td style={{ color: 'var(--text-muted)' }}>{yearMap[yr].count}</td>
+                  <td style={{ color: 'var(--accent-green)' }}>{formatMoney(yearMap[yr].gains)}</td>
+                  <td style={{ color: 'var(--accent-red)' }}>{formatMoney(yearMap[yr].losses)}</td>
+                  <td className={yearMap[yr].net >= 0 ? 'positive' : 'negative'}>{formatMoney(yearMap[yr].net)}</td>
+                </tr>
+                {expanded.has(yr) && Object.keys(yearMap[yr].months).sort().reverse().map(ym => {
+                  const m = yearMap[yr].months[ym];
+                  const monthIdx = parseInt(ym.slice(5, 7), 10) - 1;
+                  return (
+                    <tr key={ym} style={{ background: 'rgba(255,255,255,0.015)' }}>
+                      <td style={{ paddingLeft: '32px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                        {MONTHS[monthIdx]} {yr}
+                      </td>
+                      <td style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{m.count}</td>
+                      <td style={{ color: 'var(--accent-green)', fontSize: '12px' }}>{formatMoney(m.gains)}</td>
+                      <td style={{ color: 'var(--accent-red)', fontSize: '12px' }}>{formatMoney(m.losses)}</td>
+                      <td className={m.net >= 0 ? 'positive' : 'negative'} style={{ fontSize: '12px' }}>{formatMoney(m.net)}</td>
+                    </tr>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+            <tr style={{ borderTop: '2px solid var(--border-accent)', background: 'rgba(255,255,255,0.02)' }}>
+              <td style={{ fontWeight: 700 }}>All Time</td>
+              <td style={{ fontWeight: 600, color: 'var(--text-muted)' }}>{closedPositions.length}</td>
+              <td style={{ fontWeight: 600, color: 'var(--accent-green)' }}>{formatMoney(allGains)}</td>
+              <td style={{ fontWeight: 600, color: 'var(--accent-red)' }}>{formatMoney(allLosses)}</td>
+              <td style={{ fontWeight: 700 }} className={allNet >= 0 ? 'positive' : 'negative'}>{formatMoney(allNet)}</td>
+            </tr>
+          </tbody>
+        </table>
+      ) : (
+        <div style={{ overflowX: 'auto', padding: '20px 16px 16px' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            minWidth: `${allMonths.length * 52}px`,
+            height: `${HALF_H * 2 + 32}px`,
+            position: 'relative',
+          }}>
+            {/* Zero line */}
+            <div style={{
+              position: 'absolute', left: 0, right: 0,
+              top: `${HALF_H}px`, height: '1px',
+              background: 'var(--border-accent)', zIndex: 0,
+            }} />
+            {allMonths.map(({ ym, net, count }) => {
+              const monthIdx = parseInt(ym.slice(5, 7), 10) - 1;
+              const yr = ym.slice(0, 4);
+              const label = `${MONTHS[monthIdx]} '${yr.slice(2)}`;
+              const isPos = net >= 0;
+              const barH = Math.max(2, Math.round((Math.abs(net) / maxAbs) * HALF_H));
+              return (
+                <div key={ym} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: '0 0 46px', position: 'relative', zIndex: 1 }}>
+                  {/* Positive half — bars grow upward */}
+                  <div style={{ height: `${HALF_H}px`, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+                    {isPos && (
+                      <div
+                        style={{ width: '32px', height: `${barH}px`, background: 'var(--accent-green)', borderRadius: '3px 3px 0 0', opacity: 0.85 }}
+                        title={`${label}: ${formatMoney(net)} (${count} trade${count !== 1 ? 's' : ''})`}
+                      />
+                    )}
+                  </div>
+                  {/* Negative half — bars grow downward */}
+                  <div style={{ height: `${HALF_H}px`, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
+                    {!isPos && (
+                      <div
+                        style={{ width: '32px', height: `${barH}px`, background: 'var(--accent-red)', borderRadius: '0 0 3px 3px', opacity: 0.85 }}
+                        title={`${label}: ${formatMoney(net)} (${count} trade${count !== 1 ? 's' : ''})`}
+                      />
+                    )}
+                  </div>
+                  <div style={{ fontSize: '9px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textAlign: 'center', marginTop: '4px', width: '46px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                    {label}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GoalProgressBar({ ytdRealized, unrealizedGain }) {
+  const [goal, setGoal] = React.useState(150000);
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState('');
+
+  const realized = ytdRealized || 0;
+  const unrealized = unrealizedGain || 0;
+  const total = realized + unrealized;
+  const pct = goal > 0 ? Math.min((total / goal) * 100, 100) : 0;
+  const realizedPct = goal > 0 ? Math.min((Math.max(realized, 0) / goal) * 100, 100) : 0;
+  const unrealizedPct = goal > 0 ? Math.min((Math.max(unrealized, 0) / goal) * 100, 100 - realizedPct) : 0;
+  const remaining = Math.max(goal - total, 0);
+
+  const startEdit = () => { setDraft(goal.toString()); setEditing(true); };
+  const commitEdit = () => {
+    const v = parseFloat(draft.replace(/[,$]/g, ''));
+    if (!isNaN(v) && v > 0) setGoal(v);
+    setEditing(false);
+  };
+
+  return (
+    <div className="goal-bar-panel">
+      <div className="goal-bar-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <span className="goal-bar-title">2026 Gain Goal</span>
+          {editing ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-muted)' }}>$</span>
+              <input
+                className="goal-input"
+                autoFocus
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                onBlur={commitEdit}
+                onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditing(false); }}
+              />
+            </span>
+          ) : (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              {formatMoney(goal)}
+              <button className="goal-edit-btn" onClick={startEdit}>edit</button>
+            </span>
+          )}
+        </div>
+        <span className="goal-bar-pct" style={{ color: pct >= 100 ? 'var(--accent-green)' : 'var(--text-primary)' }}>
+          {pct.toFixed(1)}%
+        </span>
+      </div>
+
+      <div className="goal-bar-track">
+        <div className="goal-bar-fill-realized" style={{ width: `${realizedPct}%`, borderRadius: unrealizedPct > 0 ? '6px 0 0 6px' : '6px' }} />
+        <div className="goal-bar-fill-unrealized" style={{ left: `${realizedPct}%`, width: `${unrealizedPct}%`, borderRadius: realizedPct > 0 ? '0 6px 6px 0' : '6px' }} />
+      </div>
+
+      <div className="goal-bar-stats">
+        <div className="goal-stat">
+          <span className="goal-stat-label" style={{ color: 'var(--accent-green)' }}>● Realized (YTD)</span>
+          <span className="goal-stat-value" style={{ color: realized >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>{formatMoney(realized)}</span>
+        </div>
+        <div className="goal-stat">
+          <span className="goal-stat-label" style={{ color: 'var(--accent-blue)' }}>● Unrealized</span>
+          <span className="goal-stat-value" style={{ color: unrealized >= 0 ? 'var(--accent-blue)' : 'var(--accent-red)' }}>{formatMoney(unrealized)}</span>
+        </div>
+        <div className="goal-stat">
+          <span className="goal-stat-label">Total P&amp;L</span>
+          <span className="goal-stat-value" style={{ color: total >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>{formatMoney(total)}</span>
+        </div>
+        <div className="goal-stat">
+          <span className="goal-stat-label">Remaining</span>
+          <span className="goal-stat-value" style={{ color: remaining > 0 ? 'var(--text-secondary)' : 'var(--accent-green)' }}>
+            {remaining > 0 ? formatMoney(remaining) : '🎯 Goal reached!'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PortfolioHistoryChart({ currentValue }) {
+  const [history, setHistory] = React.useState([]);
+  const [snaps, setSnaps] = React.useState([]);
+  const [showForm, setShowForm] = React.useState(false);
+  const [showEntries, setShowEntries] = React.useState(false);
+  const [form, setForm] = React.useState({ date: '', total_value: '', label: '', is_estimate: true });
+  const [saving, setSaving] = React.useState(false);
+  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const loadData = async () => {
+    try {
+      const [h, d] = await Promise.all([
+        fetch('/api/portfolio-history').then(r => r.json()).catch(() => []),
+        fetch('/api/snapshots/daily?days=500').then(r => r.json()).catch(() => []),
+      ]);
+      setHistory(Array.isArray(h) ? h : []);
+      setSnaps(Array.isArray(d) ? d : []);
+    } catch(e) { console.error('HistoryChart:', e); }
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  const combined = React.useMemo(() => {
+    const map = {};
+    history.forEach(h => {
+      map[h.date] = { date: h.date, value: h.total_value, label: h.label || '', isEstimate: !!h.is_estimate, source: 'history' };
+    });
+    snaps.forEach(s => {
+      map[s.date] = { date: s.date, value: s.total_value, label: '', isEstimate: false, source: 'snap' };
+    });
+    if (currentValue > 0) {
+      const today = new Date().toISOString().slice(0, 10);
+      map[today] = { date: today, value: currentValue, label: 'live', isEstimate: false, source: 'live' };
+    }
+    return Object.values(map).sort((a, b) => a.date < b.date ? -1 : 1);
+  }, [history, snaps, currentValue]);
+
+  const SP500_YR = { 2022: -0.1811, 2023: 0.2424, 2024: 0.25, 2025: 0.179, 2026: 0.06 };
+  const sp500Line = React.useMemo(() => {
+    if (combined.length < 2) return [];
+    const base = combined[0];
+    return combined.map(pt => {
+      const from = new Date(base.date + 'T12:00:00Z');
+      const to = new Date(pt.date + 'T12:00:00Z');
+      if (to <= from) return { date: pt.date, value: base.value };
+      let mult = 1, cur = new Date(from);
+      while (cur < to) {
+        const yr = cur.getUTCFullYear();
+        const rate = SP500_YR[yr] !== undefined ? SP500_YR[yr] : 0.10;
+        const yrEnd = new Date(Date.UTC(yr + 1, 0, 1, 12));
+        const segEnd = to < yrEnd ? to : yrEnd;
+        const daysInYr = (Date.UTC(yr + 1, 0, 1) - Date.UTC(yr, 0, 1)) / 86400000;
+        const daysInSeg = (segEnd - cur) / 86400000;
+        mult *= Math.pow(1 + rate, daysInSeg / daysInYr);
+        cur = new Date(segEnd);
+      }
+      return { date: pt.date, value: base.value * mult };
+    });
+  }, [combined]);
+
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    if (!form.date || !form.total_value) return;
+    setSaving(true);
+    try {
+      await fetch('/api/portfolio-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: form.date, total_value: parseFloat(form.total_value), label: form.label, is_estimate: form.is_estimate }),
+      });
+      setForm({ date: '', total_value: '', label: '', is_estimate: true });
+      setShowForm(false);
+      loadData();
+    } finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id) => {
+    await fetch(`/api/portfolio-history/${id}`, { method: 'DELETE' });
+    loadData();
+  };
+
+  const W = 900, H = 260;
+  const PAD = { top: 24, right: 24, bottom: 40, left: 74 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
+
+  const allVals = [...combined.map(p => p.value), ...sp500Line.map(p => p.value)].filter(v => v > 0);
+  const minV = allVals.length ? Math.min(...allVals) * 0.95 : 0;
+  const maxV = allVals.length ? Math.max(...allVals) * 1.05 : 1;
+  const allTs = combined.map(p => new Date(p.date + 'T12:00:00Z').getTime());
+  const minT = allTs.length ? Math.min(...allTs) : 0;
+  const maxT = allTs.length ? Math.max(...allTs) : 1;
+  const tSpan = maxT - minT || 1;
+  const vSpan = maxV - minV || 1;
+
+  const sx = t => PAD.left + ((t - minT) / tSpan) * cW;
+  const sy = v => PAD.top + cH - ((v - minV) / vSpan) * cH;
+  const ts = d => new Date(d + 'T12:00:00Z').getTime();
+
+  const portPts = combined.map(p => `${sx(ts(p.date)).toFixed(1)},${sy(p.value).toFixed(1)}`).join(' ');
+  const spPts   = sp500Line.map(p => `${sx(ts(p.date)).toFixed(1)},${sy(p.value).toFixed(1)}`).join(' ');
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1.0].map(f => minV + vSpan * f);
+
+  const yearSet = new Set();
+  combined.forEach(p => yearSet.add(p.date.slice(0, 4)));
+  const xLabels = [];
+  yearSet.forEach(yr => {
+    const t = Date.UTC(parseInt(yr), 0, 1, 12);
+    if (t >= minT && t <= maxT) xLabels.push({ yr, x: sx(t) });
+  });
+
+  const annotations = history.map(h => ({
+    x: sx(ts(h.date)), y: sy(h.total_value),
+    label: h.label || h.date.slice(0, 7), value: h.total_value,
+  }));
+
+  let totalGainPct = null, sp500GainPct = null;
+  if (combined.length >= 2) {
+    totalGainPct = ((combined[combined.length-1].value - combined[0].value) / combined[0].value * 100).toFixed(1);
+  }
+  if (sp500Line.length >= 2) {
+    sp500GainPct = ((sp500Line[sp500Line.length-1].value - sp500Line[0].value) / sp500Line[0].value * 100).toFixed(1);
+  }
+
+  const noData = combined.length < 2;
+  const lastPt = combined.length > 0 ? combined[combined.length - 1] : null;
+
+  return (
+    <div className="hist-panel">
+      <div className="panel-header">
+        <span className="panel-title">Portfolio History</span>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {totalGainPct !== null && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: parseFloat(totalGainPct) >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+              Portfolio {parseFloat(totalGainPct) >= 0 ? '+' : ''}{totalGainPct}%
+            </span>
+          )}
+          {sp500GainPct !== null && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent-amber)' }}>
+              vs S&P {parseFloat(sp500GainPct) >= 0 ? '+' : ''}{sp500GainPct}%
+            </span>
+          )}
+          {history.length > 0 && (
+            <button className="tab-btn" onClick={() => setShowEntries(v => !v)} style={{ fontSize: '10px', padding: '3px 8px' }}>
+              {showEntries ? 'Hide' : 'Entries'} ({history.length})
+            </button>
+          )}
+          <button className="btn" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => setShowForm(v => !v)}>
+            {showForm ? 'Cancel' : '+ Add'}
+          </button>
+        </div>
+      </div>
+
+      {noData ? (
+        <div style={{ padding: '40px 20px', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-muted)' }}>
+          Add historical data points to visualize your portfolio growth vs S&P 500
+        </div>
+      ) : (
+        <svg viewBox={`0 0 ${W} ${H}`} className="hist-chart" style={{ height: '260px' }}>
+          <defs>
+            <linearGradient id="portGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.01" />
+            </linearGradient>
+          </defs>
+
+          {/* Horizontal grid */}
+          {yTicks.map((v, i) => (
+            <line key={i} x1={PAD.left} y1={sy(v).toFixed(1)} x2={W-PAD.right} y2={sy(v).toFixed(1)}
+              stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
+          ))}
+
+          {/* Year markers */}
+          {xLabels.map(({ yr, x }) => (
+            <g key={yr}>
+              <line x1={x.toFixed(1)} y1={PAD.top} x2={x.toFixed(1)} y2={H-PAD.bottom}
+                stroke="rgba(255,255,255,0.06)" strokeWidth="1" strokeDasharray="3,3" />
+              <text x={x.toFixed(1)} y={H-PAD.bottom+15} textAnchor="middle"
+                fill="rgba(100,120,140,0.8)" fontFamily="JetBrains Mono,monospace" fontSize="10">{yr}</text>
+            </g>
+          ))}
+
+          {/* Y-axis labels */}
+          {yTicks.map((v, i) => (
+            <text key={i} x={PAD.left-6} y={(sy(v)+4).toFixed(1)} textAnchor="end"
+              fill="rgba(100,120,140,0.8)" fontFamily="JetBrains Mono,monospace" fontSize="10">
+              {v >= 1e6 ? `$${(v/1e6).toFixed(1)}M` : `$${Math.round(v/1000)}K`}
+            </text>
+          ))}
+
+          {/* S&P 500 reference line */}
+          {sp500Line.length > 1 && (
+            <polyline points={spPts} fill="none" stroke="rgba(251,191,36,0.55)" strokeWidth="1.5" strokeDasharray="5,3" />
+          )}
+
+          {/* Portfolio fill area */}
+          {combined.length > 1 && (
+            <polygon
+              points={`${PAD.left},${H-PAD.bottom} ${portPts} ${(W-PAD.right).toFixed(1)},${(H-PAD.bottom).toFixed(1)}`}
+              fill="url(#portGrad)"
+            />
+          )}
+
+          {/* Portfolio line */}
+          {combined.length > 1 && (
+            <polyline points={portPts} fill="none" stroke="#60a5fa" strokeWidth="2.2" strokeLinejoin="round" />
+          )}
+
+          {/* History entry dots */}
+          {annotations.map((a, i) => (
+            <circle key={i} cx={a.x.toFixed(1)} cy={a.y.toFixed(1)} r="4"
+              fill="var(--bg-card)" stroke="#60a5fa" strokeWidth="2" />
+          ))}
+
+          {/* Live dot with pulse ring */}
+          {lastPt && (() => {
+            const lx = sx(ts(lastPt.date)), ly = sy(lastPt.value);
+            return (
+              <g>
+                <circle cx={lx.toFixed(1)} cy={ly.toFixed(1)} r="9" fill="none" stroke="#60a5fa" strokeWidth="1" opacity="0.28" />
+                <circle cx={lx.toFixed(1)} cy={ly.toFixed(1)} r="5" fill="#60a5fa" />
+              </g>
+            );
+          })()}
+
+          {/* Legend */}
+          <g transform={`translate(${PAD.left+8},${PAD.top+7})`}>
+            <line x1="0" y1="6" x2="18" y2="6" stroke="#60a5fa" strokeWidth="2.2" />
+            <text x="22" y="10" fill="rgba(140,160,180,0.9)" fontFamily="JetBrains Mono,monospace" fontSize="10">Portfolio</text>
+            <line x1="84" y1="6" x2="102" y2="6" stroke="rgba(251,191,36,0.7)" strokeWidth="1.5" strokeDasharray="5,3" />
+            <text x="106" y="10" fill="rgba(140,160,180,0.9)" fontFamily="JetBrains Mono,monospace" fontSize="10">S&P 500 (est.)</text>
+          </g>
+        </svg>
+      )}
+
+      {/* Manual entries list */}
+      {showEntries && history.length > 0 && (
+        <div className="hist-entry-list">
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
+            Manual Entries
+          </div>
+          {history.map(h => (
+            <div key={h.id} className="hist-entry-item">
+              <span style={{ color: 'var(--text-muted)', minWidth: '90px' }}>{h.date}</span>
+              <span style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>{formatMoney(h.total_value)}</span>
+              {h.label && <span style={{ color: 'var(--text-secondary)' }}>{h.label}</span>}
+              <span style={{ color: 'var(--text-muted)', fontSize: '9px', textTransform: 'uppercase' }}>
+                {h.is_estimate ? 'est.' : 'actual'}
+              </span>
+              <button onClick={() => handleDelete(h.id)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '13px', padding: '0 2px', marginLeft: 'auto' }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add entry form */}
+      {showForm && (
+        <form onSubmit={handleAdd} className="hist-form-row">
+          <div className="form-row" style={{ flex: '0 0 140px', marginBottom: 0 }}>
+            <label className="form-label">Date *</label>
+            <input className="form-input" type="date" value={form.date} onChange={e => setF('date', e.target.value)} required />
+          </div>
+          <div className="form-row" style={{ flex: '0 0 160px', marginBottom: 0 }}>
+            <label className="form-label">Total Value ($) *</label>
+            <input className="form-input" type="number" min="0" step="any" placeholder="e.g. 380000"
+              value={form.total_value} onChange={e => setF('total_value', e.target.value)} required />
+          </div>
+          <div className="form-row" style={{ flex: '0 0 140px', marginBottom: 0 }}>
+            <label className="form-label">Label</label>
+            <input className="form-input" placeholder="e.g. Dec 2024" value={form.label} onChange={e => setF('label', e.target.value)} />
+          </div>
+          <div className="form-row" style={{ flex: '0 0 100px', marginBottom: 0 }}>
+            <label className="form-label">Type</label>
+            <select className="form-input" value={form.is_estimate ? 'est' : 'actual'} onChange={e => setF('is_estimate', e.target.value === 'est')}>
+              <option value="est">Estimate</option>
+              <option value="actual">Actual</option>
+            </select>
+          </div>
+          <button type="submit" className="btn btn-primary" style={{ alignSelf: 'flex-end', padding: '6px 14px', fontSize: '12px' }} disabled={saving}>
+            {saving ? '...' : 'Save'}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+// ── Signal type metadata ──────────────────────────────────────
+const SIG_TYPE_LABEL = { technical:'TECH', options_flow:'OPT', insider:'INSID', sentiment:'SENT', custom:'CUST' };
+const SIG_TYPE_COLOR = {
+  technical: 'var(--accent-blue)',
+  options_flow: 'var(--accent-amber)',
+  insider: '#c084fc',
+  sentiment: '#fb7185',
+  custom: 'var(--text-secondary)',
+};
+function dirColor(d) {
+  return d === 'bullish' ? 'var(--accent-green)' : d === 'bearish' ? 'var(--accent-red)' : 'var(--text-secondary)';
+}
+function dirBg(d) {
+  return d === 'bullish' ? 'rgba(52,211,153,0.12)' : d === 'bearish' ? 'rgba(248,113,113,0.12)' : 'rgba(100,120,140,0.08)';
+}
+const DIR_ARROW = { bullish: '▲', bearish: '▼', neutral: '─' };
+
+// ── SignalCard ────────────────────────────────────────────────
+function SignalCard({ summary, showIndicators, onToggleIndicators, onRemove }) {
+  const { symbol, signals = [], indicators = {}, composite_score = 0, direction = 'neutral', signal_count = 0 } = summary;
+  const dc = dirColor(direction);
+  const db = dirBg(direction);
+
+  return (
+    <div className="signal-card">
+      {/* Header */}
+      <div className="signal-card-header">
+        <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'8px' }}>
+          <span style={{ fontFamily:'var(--font-mono)', fontSize:'15px', fontWeight:700, color:'var(--text-primary)' }}>{symbol}</span>
+          <span style={{ fontSize:'10px', fontWeight:700, padding:'2px 8px', borderRadius:'4px', fontFamily:'var(--font-mono)', letterSpacing:'0.5px', background:db, color:dc }}>
+            {DIR_ARROW[direction]} {direction.toUpperCase()}
+          </span>
+          <span style={{ fontSize:'10px', color:'var(--text-muted)', fontFamily:'var(--font-mono)', marginLeft:'auto' }}>
+            {signal_count} signal{signal_count !== 1 ? 's' : ''}
+          </span>
+          {onRemove && (
+            <button onClick={onRemove} title={`Remove ${symbol}`}
+              style={{ marginLeft:'6px', background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)',
+                fontSize:'14px', lineHeight:1, padding:'0 2px', borderRadius:'3px', flexShrink:0,
+                transition:'color 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.color='var(--accent-red)'}
+              onMouseLeave={e => e.currentTarget.style.color='var(--text-muted)'}
+            >×</button>
+          )}
+        </div>
+        {/* Score bar */}
+        <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+          <span style={{ fontSize:'9px', fontFamily:'var(--font-mono)', color:'var(--text-muted)', minWidth:'20px' }}>−10</span>
+          <div style={{ flex:1, height:'4px', background:'rgba(255,255,255,0.06)', borderRadius:'2px', position:'relative' }}>
+            <div style={{ position:'absolute', left:'50%', top:'-2px', width:'1px', height:'8px', background:'rgba(255,255,255,0.15)' }} />
+            <div style={{
+              position:'absolute',
+              left: composite_score >= 0 ? '50%' : `${((composite_score + 10) / 20) * 100}%`,
+              width:`${(Math.abs(composite_score) / 20) * 100}%`,
+              height:'100%', borderRadius:'2px',
+              background: composite_score >= 3 ? 'var(--accent-green)' : composite_score <= -3 ? 'var(--accent-red)' : 'rgba(100,120,140,0.5)',
+              transition:'width 0.3s ease',
+            }} />
+          </div>
+          <span style={{ fontSize:'9px', fontFamily:'var(--font-mono)', color:'var(--text-muted)', minWidth:'20px', textAlign:'right' }}>+10</span>
+          <span style={{ fontSize:'13px', fontFamily:'var(--font-mono)', fontWeight:700, color: composite_score >= 3 ? 'var(--accent-green)' : composite_score <= -3 ? 'var(--accent-red)' : 'var(--text-secondary)', minWidth:'38px', textAlign:'right' }}>
+            {composite_score >= 0 ? '+' : ''}{composite_score.toFixed(1)}
+          </span>
+        </div>
+      </div>
+
+      {/* Signal rows */}
+      {signals.length === 0 ? (
+        <div style={{ padding:'16px', fontFamily:'var(--font-mono)', fontSize:'11px', color:'var(--text-muted)', textAlign:'center' }}>
+          No signals fired
+        </div>
+      ) : (
+        <div>
+          {signals.map((sig, i) => {
+            const sc = dirColor(sig.direction);
+            return (
+              <div key={i} className="signal-row">
+                {/* Direction + type */}
+                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'4px', paddingTop:'1px', minWidth:'36px' }}>
+                  <span style={{ fontSize:'12px', color:sc, fontWeight:700, lineHeight:1 }}>{DIR_ARROW[sig.direction]}</span>
+                  <span style={{ fontSize:'8px', fontFamily:'var(--font-mono)', fontWeight:700, color:SIG_TYPE_COLOR[sig.signal_type], letterSpacing:'0.3px' }}>
+                    {SIG_TYPE_LABEL[sig.signal_type]}
+                  </span>
+                </div>
+                {/* Name + description */}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontFamily:'var(--font-mono)', fontSize:'11px', fontWeight:600, color:'var(--text-primary)', marginBottom:'3px' }}>{sig.name}</div>
+                  <div style={{ fontSize:'11px', color:'var(--text-secondary)', lineHeight:1.45 }}>{sig.description}</div>
+                </div>
+                {/* Conviction dots */}
+                <div style={{ display:'flex', gap:'3px', alignItems:'center', paddingTop:'2px', flexShrink:0 }}>
+                  {[1,2,3,4,5].map(n => (
+                    <div key={n} style={{ width:'6px', height:'6px', borderRadius:'50%', background: n <= sig.conviction ? sc : 'rgba(255,255,255,0.08)' }} />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Indicators section */}
+      {Object.keys(indicators).length > 0 && (
+        <>
+          <button className="signal-indicators-toggle" onClick={onToggleIndicators}>
+            <span>Indicators</span>
+            <span>{showIndicators ? '▲' : '▼'}</span>
+          </button>
+          {showIndicators && (
+            <div className="signal-indicators-grid">
+              {[
+                { label:'Price',  val:indicators.price,    fmt: v => `$${v.toFixed(2)}` },
+                { label:'RSI',    val:indicators.rsi,      fmt: v => v.toFixed(1),
+                  color: indicators.rsi < 30 ? 'var(--accent-green)' : indicators.rsi > 70 ? 'var(--accent-red)' : undefined },
+                { label:'SMA 20', val:indicators.sma20,    fmt: v => `$${v.toFixed(2)}` },
+                { label:'SMA 50', val:indicators.sma50,    fmt: v => `$${v.toFixed(2)}` },
+                { label:'SMA 200',val:indicators.sma200,   fmt: v => `$${v.toFixed(2)}` },
+                { label:'MACD Δ', val:indicators.macd_hist, fmt: v => (v >= 0 ? '+' : '') + v.toFixed(3),
+                  color: indicators.macd_hist >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' },
+                { label:'BB Up',  val:indicators.bb_upper,  fmt: v => `$${v.toFixed(2)}` },
+                { label:'BB Lo',  val:indicators.bb_lower,  fmt: v => `$${v.toFixed(2)}` },
+                { label:'ATR',    val:indicators.atr,       fmt: v => v.toFixed(2) },
+              ].filter(x => x.val != null).map(({ label, val, fmt, color }) => (
+                <div key={label} className="ind-item">
+                  <span className="ind-label">{label}</span>
+                  <span className="ind-value" style={color ? { color } : {}}>{fmt(val)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── SignalsView ───────────────────────────────────────────────
+function SignalsView({ portfolioSymbols = [] }) {
+  const [results, setResults]             = React.useState({});
+  const [watchlist, setWatchlist]         = React.useState('');
+  const [scanning, setScanning]           = React.useState(false);
+  const [scanTarget, setScanTarget]       = React.useState(null); // 'portfolio' | 'watchlist'
+  const [sortBy, setSortBy]               = React.useState('score');
+  const [filterDir, setFilterDir]         = React.useState('all');
+  const [expandedSet, setExpandedSet]     = React.useState(new Set());
+  const [lastScan, setLastScan]           = React.useState(null);
+  const [scanError, setScanError]         = React.useState(null);
+  // Load any cached results on mount
+  React.useEffect(() => {
+    fetch(`${API}/api/signals`)
+      .then(r => r.json())
+      .then(data => { if (Object.keys(data).length) setResults(data); })
+      .catch(() => {});
+  }, []);
+
+  const runScan = async (url, body) => {
+    setScanning(true); setScanError(null);
+    try {
+      const opts = { method:'POST' };
+      if (body) { opts.headers = { 'Content-Type':'application/json' }; opts.body = JSON.stringify(body); }
+      const res = await fetch(`${API}${url}`, opts);
+      const data = await res.json();
+      if (data.error) { setScanError(data.error); return; }
+      setResults(prev => ({ ...prev, ...data }));
+      setLastScan(new Date());
+    } catch (e) {
+      setScanError('Scan failed — check backend logs');
+    } finally {
+      setScanning(false); setScanTarget(null);
+    }
+  };
+
+  const scanPortfolio = () => { setScanTarget('portfolio'); runScan('/api/signals/scan-portfolio'); };
+
+  const scanWatchlist = () => {
+    const syms = watchlist.split(/[\s,]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+    if (!syms.length) return;
+    setScanTarget('watchlist');
+    runScan('/api/signals/scan', { symbols: syms });
+  };
+
+  const removeSymbol = sym =>
+    setResults(prev => { const copy = { ...prev }; delete copy[sym]; return copy; });
+
+  const toggleIndicators = sym => setExpandedSet(prev => {
+    const next = new Set(prev);
+    next.has(sym) ? next.delete(sym) : next.add(sym);
+    return next;
+  });
+
+  // Filter + sort
+  let entries = Object.entries(results);
+  if (filterDir !== 'all') entries = entries.filter(([, s]) => s.direction === filterDir);
+  if (sortBy === 'score') entries.sort((a, b) => b[1].composite_score - a[1].composite_score);
+  else entries.sort((a, b) => a[0].localeCompare(b[0]));
+
+  const bullCount = Object.values(results).filter(s => s.direction === 'bullish').length;
+  const bearCount = Object.values(results).filter(s => s.direction === 'bearish').length;
+  const neutCount = Object.values(results).filter(s => s.direction === 'neutral').length;
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div className="signals-toolbar">
+        <button className="btn btn-primary" disabled={scanning} onClick={scanPortfolio}
+          style={{ fontSize:'11px', padding:'6px 14px', flexShrink:0 }}>
+          {scanning && scanTarget === 'portfolio'
+            ? <span className="scan-progress">● Scanning portfolio…</span>
+            : '⟳ Scan Portfolio'}
+        </button>
+
+        <div style={{ display:'flex', gap:'6px', alignItems:'center', flex:1, minWidth:0 }}>
+          <input className="form-input" placeholder="Watchlist: MSFT, NVDA, SPY…" value={watchlist}
+            onChange={e => setWatchlist(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && scanWatchlist()}
+            style={{ maxWidth:'260px', fontSize:'12px' }} />
+          <button className="btn" disabled={scanning || !watchlist.trim()} onClick={scanWatchlist}
+            style={{ fontSize:'11px', padding:'6px 12px', flexShrink:0 }}>
+            {scanning && scanTarget === 'watchlist' ? <span className="scan-progress">…</span> : 'Scan'}
+          </button>
+        </div>
+
+        <div style={{ display:'flex', gap:'8px', alignItems:'center', marginLeft:'auto', flexShrink:0 }}>
+          {lastScan && (
+            <span style={{ fontSize:'10px', color:'var(--text-muted)', fontFamily:'var(--font-mono)' }}>
+              {lastScan.toLocaleTimeString()}
+            </span>
+          )}
+          <select className="form-input" value={sortBy} onChange={e => setSortBy(e.target.value)}
+            style={{ width:'auto', fontSize:'11px', padding:'4px 8px' }}>
+            <option value="score">Sort: Score</option>
+            <option value="symbol">Sort: Symbol</option>
+          </select>
+          <div style={{ display:'flex', gap:'3px' }}>
+            {['all','bullish','bearish'].map(d => (
+              <button key={d} className={`tab-btn${filterDir === d ? ' active' : ''}`}
+                onClick={() => setFilterDir(d)}
+                style={{ fontSize:'10px', padding:'4px 9px', textTransform:'capitalize' }}>
+                {d}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Summary bar */}
+      {Object.keys(results).length > 0 && (
+        <div style={{ padding:'10px 16px', borderBottom:'1px solid var(--border)', display:'flex', gap:'24px', alignItems:'center' }}>
+          <span style={{ fontSize:'10px', fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>
+            {Object.keys(results).length} symbol{Object.keys(results).length !== 1 ? 's' : ''} scanned
+          </span>
+          <span style={{ fontSize:'11px', fontFamily:'var(--font-mono)', color:'var(--accent-green)', fontWeight:600 }}>▲ {bullCount} bullish</span>
+          <span style={{ fontSize:'11px', fontFamily:'var(--font-mono)', color:'var(--accent-red)', fontWeight:600 }}>▼ {bearCount} bearish</span>
+          <span style={{ fontSize:'11px', fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>─ {neutCount} neutral</span>
+        </div>
+      )}
+
+      {/* Error */}
+      {scanError && (
+        <div style={{ margin:'12px 16px', padding:'10px 14px', background:'var(--accent-red-bg)', border:'1px solid var(--accent-red)', borderRadius:'6px', fontFamily:'var(--font-mono)', fontSize:'12px', color:'var(--accent-red)' }}>
+          {scanError}
+        </div>
+      )}
+
+      {/* Cards grid or empty state */}
+      {entries.length === 0 ? (
+        <div className="empty-state">
+          <h3>No signals yet</h3>
+          <p>Scan your portfolio or enter tickers in the watchlist above</p>
+        </div>
+      ) : (
+        <div className="signals-grid">
+          {entries.map(([sym, summary]) => (
+            <SignalCard key={sym} summary={summary}
+              showIndicators={expandedSet.has(sym)}
+              onToggleIndicators={() => toggleIndicators(sym)}
+              onRemove={() => removeSymbol(sym)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [portfolio, setPortfolio] = useState(null);
+  const [closedPositions, setClosedPositions] = useState([]);
+  const [taxLots, setTaxLots] = useState({});        // key: "SYMBOL-broker" → lot[]
+  const [priceHistory, setPriceHistory] = useState({});  // symbol → close[] oldest→newest
+  const [selectedPosition, setSelectedPosition] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState(null);
+  const [activeTab, setActiveTab] = useState('active');
+  const [dateRange, setDateRange] = useState('1M');
+
+  const fetchPortfolio = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/api/portfolio`);
+      const data = await res.json();
+      setPortfolio(data);
+    } catch (err) {
+      console.error('Fetch failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchClosed = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/api/closed-positions`);
+      setClosedPositions(await res.json());
+    } catch (err) {
+      console.error('Closed positions fetch failed:', err);
+    }
+  }, []);
+
+  const fetchTaxLots = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/api/tax-lots`);
+      const all = await res.json();
+      // Group by "SYMBOL-broker"
+      const grouped = {};
+      all.forEach(lot => {
+        const k = `${lot.symbol}-${lot.broker}`;
+        if (!grouped[k]) grouped[k] = [];
+        grouped[k].push(lot);
+      });
+      setTaxLots(grouped);
+    } catch (err) {
+      console.error('Tax lots fetch failed:', err);
+    }
+  }, []);
+
+  const fetchPriceHistory = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/api/price-history`);
+      setPriceHistory(await res.json());
+    } catch (err) {
+      console.error('Price history fetch failed:', err);
+    }
+  }, []);
+
+  useEffect(() => { fetchPortfolio(); fetchClosed(); fetchTaxLots(); fetchPriceHistory(); }, [fetchPortfolio, fetchClosed, fetchTaxLots, fetchPriceHistory]);
+
+  // Scroll Tax Lots panel into view when a position is selected
+  useEffect(() => {
+    if (selectedPosition) {
+      const el = document.getElementById('tax-lots-panel');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [selectedPosition]);
+
+  const handleRefresh = async () => {
+    setLoading(true);
+    try {
+      await fetch(`${API}/api/refresh`, { method: 'POST' });
+      await fetchPortfolio();
+      fetchPriceHistory();
+      setToast({ message: 'Portfolio refreshed', type: 'success' });
+    } catch {
+      setToast({ message: 'Refresh failed', type: 'error' });
+    }
+    setLoading(false);
+  };
+
+  const handleUpload = async (formData, broker) => {
+    try {
+      const res = await fetch(`${API}/api/import/csv?broker=${broker}`, {
+        method: 'POST', body: formData,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setToast({ message: `Imported ${data.imported} positions`, type: 'success' });
+        fetchPortfolio();
+      } else {
+        setToast({ message: data.detail || 'Import failed', type: 'error' });
+      }
+    } catch {
+      setToast({ message: 'Upload failed', type: 'error' });
+    }
+  };
+
+  const handleExport = () => {
+    window.open(`${API}/api/export/csv`, '_blank');
+  };
+
+  const handleDeleteClosed = async (id) => {
+    await fetch(`${API}/api/closed-positions/${id}`, { method: 'DELETE' });
+    fetchClosed();
+  };
+
+  const positions = portfolio?.positions || [];
+  const hasData = positions.length > 0;
+  const totalCash = positions.filter(p => p.asset_type === 'cash').reduce((s, p) => s + p.market_value, 0);
+  const totalRealized = closedPositions.reduce((s, p) => s + p.realized_gain, 0);
+  const currentYear = new Date().getFullYear().toString();
+  const ytdRealized = closedPositions
+    .filter(p => p.closed_at?.startsWith(currentYear))
+    .reduce((s, p) => s + p.realized_gain, 0);
+
+  return (
+    <div className="app-container">
+      {/* Header */}
+      <div className="header">
+        <div className="header-left">
+          <h1><span>▸</span> Portfolio Tracker</h1>
+          <div className="subtitle">
+            {hasData
+              ? `${positions.length} positions across ${Object.keys(portfolio.broker_breakdown || {}).length} broker(s)`
+              : 'No positions loaded'
+            }
+          </div>
+        </div>
+        <div className="header-actions">
+          <button className="btn" onClick={handleExport}>Export CSV</button>
+          <button className="btn btn-primary" onClick={handleRefresh}>
+            {loading ? '...' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      {/* Stats — hidden when Signals tab is active */}
+      {activeTab !== 'signals' && <div className="stats-grid">
+        <StatCard
+          label="Total Value"
+          value={formatMoney(portfolio?.total_value)}
+        />
+        <StatCard
+          label="Unrealized P&L"
+          value={formatMoney(portfolio?.total_gain)}
+          subClass={portfolio?.total_gain >= 0 ? 'positive' : 'negative'}
+          sub={formatPct(portfolio?.total_gain_pct)}
+        />
+        <StatCard
+          label="Realized P&L"
+          value={formatMoney(totalRealized)}
+          subClass={ytdRealized >= 0 ? 'positive' : 'negative'}
+          sub={`${formatMoney(ytdRealized)} YTD`}
+        />
+        <StatCard
+          label="Cash"
+          value={formatMoney(totalCash)}
+          sub={`${positions.filter(p => p.asset_type !== 'cash').length} active positions`}
+        />
+      </div>}
+
+      {/* Goal Progress Bar — hidden when Signals tab is active */}
+      {activeTab !== 'signals' && <GoalProgressBar ytdRealized={ytdRealized} unrealizedGain={portfolio?.total_gain} />}
+
+      {/* Portfolio trend — hidden when Signals tab is active */}
+      {activeTab !== 'signals' && <OverallTrend30D positions={positions} priceHistory={priceHistory} dateRange={dateRange} onRangeChange={setDateRange} />}
+
+      {/* Main content */}
+      <div className={`content-grid${activeTab === 'signals' ? ' signals-full' : ''}`}>
+        {/* Positions panel with tabs */}
+        <div className="panel">
+          <div className="panel-header">
+            <div className="tab-bar">
+              <button
+                className={`tab-btn${activeTab === 'active' ? ' active' : ''}`}
+                onClick={() => setActiveTab('active')}
+              >
+                Active ({positions.filter(p => p.asset_type !== 'cash').length})
+              </button>
+              <button
+                className={`tab-btn${activeTab === 'closed' ? ' active' : ''}`}
+                onClick={() => setActiveTab('closed')}
+              >
+                Closed ({closedPositions.length})
+              </button>
+              <button
+                className={`tab-btn${activeTab === 'signals' ? ' active' : ''}`}
+                onClick={() => { setActiveTab('signals'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
+                style={{ color: activeTab === 'signals' ? 'var(--accent-blue)' : undefined }}
+              >
+                ◈ Signals
+              </button>
+            </div>
+          </div>
+          {activeTab === 'active' ? (
+            hasData ? (
+              <PositionsTable
+                positions={positions}
+                taxLots={taxLots}
+                selectedKey={selectedPosition ? `${selectedPosition.symbol}-${selectedPosition.broker}` : null}
+                onSelectPosition={setSelectedPosition}
+                priceHistory={priceHistory}
+                dateRange={dateRange}
+              />
+            ) : (
+              <div className="empty-state">
+                <h3>No positions yet</h3>
+                <p>Import a CSV from the panel on the right to get started.</p>
+              </div>
+            )
+          ) : activeTab === 'closed' ? (
+            <ClosedPositionsTable positions={closedPositions} onDelete={handleDeleteClosed} />
+          ) : (
+            <SignalsView
+              portfolioSymbols={positions.filter(p => p.asset_type !== 'cash').map(p => p.symbol)}
+            />
+          )}
+        </div>
+
+        {/* Sidebar — hidden when signals tab is active */}
+        {activeTab !== 'signals' && <div className="sidebar-panels">
+          {/* Tax lots — always first so clicking a row scrolls straight to it */}
+          <div className="panel" id="tax-lots-panel">
+            <div className="panel-header">
+              <span className="panel-title">Tax Lots</span>
+              {selectedPosition && (
+                <button
+                  onClick={() => setSelectedPosition(null)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '16px', lineHeight: 1 }}
+                >×</button>
+              )}
+            </div>
+            {selectedPosition ? (
+              <TaxLotsPanel
+                position={selectedPosition}
+                lots={taxLots[`${selectedPosition.symbol}-${selectedPosition.broker}`] || []}
+                onRefresh={fetchTaxLots}
+              />
+            ) : (
+              <div style={{ padding: '20px 16px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                Click a position to manage its tax lots
+              </div>
+            )}
+          </div>
+
+          {/* Broker breakdown */}
+          {hasData && (
+            <div className="panel">
+              <div className="panel-header">
+                <span className="panel-title">Broker Allocation</span>
+              </div>
+              <BrokerBreakdown
+                breakdown={portfolio.broker_breakdown || {}}
+                total={portfolio.total_value || 0}
+              />
+            </div>
+          )}
+
+          {/* Cash balances */}
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">Cash Balances</span>
+            </div>
+            <CashPanel onSave={fetchPortfolio} />
+          </div>
+
+          {/* Log closed position */}
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">Log Closed Position</span>
+            </div>
+            <AddClosedPositionForm onAdd={() => { fetchClosed(); setActiveTab('closed'); }} />
+          </div>
+
+          {/* Top holdings */}
+          {hasData && (
+            <div className="panel">
+              <div className="panel-header">
+                <span className="panel-title">Top 5 Holdings</span>
+              </div>
+              <TopHoldings positions={positions} />
+            </div>
+          )}
+        </div>}
+      </div>
+
+      {/* P&L Timeline — full width below the main grid */}
+      <PnLTimeline closedPositions={closedPositions} />
+
+      {/* Portfolio History Chart — growth vs S&P 500 */}
+      <PortfolioHistoryChart currentValue={portfolio?.total_value} />
+
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

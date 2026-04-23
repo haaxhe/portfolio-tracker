@@ -1,0 +1,14 @@
+fastapi==0.115.0
+uvicorn==0.30.0
+robin-stocks==3.4.0
+rauth==0.7.3
+python-dotenv==1.0.1
+apscheduler==3.10.4
+aiofiles==24.1.0
+python-multipart==0.0.9
+httpx==0.27.0
+pydantic==2.9.0
+yfinance==0.2.54
+beautifulsoup4>=4.12
+lxml>=5.0
+vaderSentiment>=3.3
