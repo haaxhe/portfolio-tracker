@@ -17,11 +17,18 @@ _RETRY_DELAYS = [5, 15, 30]   # seconds between attempts
 
 
 def _make_session():
-    """Return a curl_cffi session that yfinance accepts."""
+    """Return a curl_cffi session that yfinance accepts.
+
+    curl_cffi is required — without it Yahoo rate-limits (429) almost immediately.
+    """
     try:
         from curl_cffi import requests as cffi_requests
         return cffi_requests.Session(impersonate="chrome")
-    except Exception:
+    except ImportError:
+        logger.error(
+            "curl_cffi not installed — yfinance will be rate-limited. "
+            "Install with: pip install 'curl_cffi>=0.7'"
+        )
         return None
 
 

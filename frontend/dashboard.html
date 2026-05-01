@@ -896,20 +896,63 @@ function StatCard({ label, value, sub, subClass }) {
   );
 }
 
+function SortTh({ label, col, sortCol, sortDir, onSort, style }) {
+  const active = sortCol === col;
+  return (
+    <th onClick={() => onSort(col)} style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', ...style }}>
+      {label}
+      <span style={{ marginLeft: '4px', opacity: active ? 1 : 0.25, fontSize: '9px' }}>
+        {active ? (sortDir === 'asc' ? '▲' : '▼') : '▲'}
+      </span>
+    </th>
+  );
+}
+
 function PositionsTable({ positions, taxLots, selectedKey, onSelectPosition, priceHistory, dateRange }) {
-  const sorted = [...positions].sort((a, b) => b.market_value - a.market_value);
+  const [sortCol, setSortCol] = React.useState('market_value');
+  const [sortDir, setSortDir] = React.useState('desc');
+
+  const onSort = col => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('desc'); }
+  };
+
+  const colVal = (p, col) => {
+    switch (col) {
+      case 'symbol': return p.symbol;
+      case 'broker': return p.broker;
+      case 'quantity': return p.asset_type === 'cash' ? Infinity : p.quantity;
+      case 'average_cost': return p.average_cost;
+      case 'current_price': return p.current_price;
+      case 'market_value': return p.market_value;
+      case 'unrealized_gain': return p.unrealized_gain;
+      case 'unrealized_gain_pct': return p.unrealized_gain_pct;
+      default: return p.market_value;
+    }
+  };
+
+  const sorted = [...positions].sort((a, b) => {
+    // Cash always last regardless of sort
+    if (a.asset_type === 'cash' && b.asset_type !== 'cash') return 1;
+    if (b.asset_type === 'cash' && a.asset_type !== 'cash') return -1;
+    const av = colVal(a, sortCol), bv = colVal(b, sortCol);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
+  const sp = { sortCol, sortDir, onSort };
 
   return (
     <table>
       <thead>
         <tr>
-          <th>Symbol</th>
-          <th>Broker</th>
-          <th>Qty</th>
-          <th>Avg Cost</th>
-          <th>Price</th>
-          <th>Value</th>
-          <th>Gain/Loss</th>
+          <SortTh label="Symbol" col="symbol" {...sp} />
+          <SortTh label="Broker" col="broker" {...sp} />
+          <SortTh label="Qty" col="quantity" {...sp} style={{textAlign:'right'}} />
+          <SortTh label="Avg Cost" col="average_cost" {...sp} style={{textAlign:'right'}} />
+          <SortTh label="Price" col="current_price" {...sp} style={{textAlign:'right'}} />
+          <SortTh label="Value" col="market_value" {...sp} style={{textAlign:'right'}} />
+          <SortTh label="Gain/Loss" col="unrealized_gain" {...sp} style={{textAlign:'right'}} />
           <th>Tax Lots</th>
           <th style={{textAlign:'center'}}>30d Trends</th>
         </tr>
@@ -1140,7 +1183,13 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
   const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = React.useState({ quantity: '', cost_basis: '', acquired_at: '' });
   const [saving, setSaving] = React.useState(false);
+  const [editingId, setEditingId] = React.useState(null);
+  const [editForm, setEditForm] = React.useState({ quantity: '', cost_basis: '', acquired_at: '' });
+  const [sellingId, setSellingId] = React.useState(null);
+  const [sellForm, setSellForm] = React.useState({ quantity: '', close_price: '', closed_at: '' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const setEdit = (k, v) => setEditForm(f => ({ ...f, [k]: v }));
+  const setSell = (k, v) => setSellForm(f => ({ ...f, [k]: v }));
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -1168,6 +1217,67 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
   const handleDelete = async (id) => {
     await fetch(`/api/tax-lots/${id}`, { method: 'DELETE' });
     onRefresh();
+  };
+
+  const startEdit = (lot) => {
+    setSellingId(null);
+    setEditingId(lot.id);
+    setEditForm({
+      quantity: String(lot.quantity),
+      cost_basis: String(lot.cost_basis),
+      acquired_at: lot.acquired_at,
+    });
+  };
+
+  const handleSaveEdit = async (id) => {
+    setSaving(true);
+    try {
+      await fetch(`/api/tax-lots/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quantity: parseFloat(editForm.quantity),
+          cost_basis: parseFloat(editForm.cost_basis),
+          acquired_at: editForm.acquired_at,
+        }),
+      });
+      setEditingId(null);
+      onRefresh();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startSell = (lot) => {
+    setEditingId(null);
+    setSellingId(lot.id);
+    setSellForm({ quantity: String(lot.quantity), close_price: '', closed_at: today });
+  };
+
+  const handleSell = async (id) => {
+    if (!sellForm.quantity || !sellForm.close_price) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/tax-lots/${id}/sell`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quantity: parseFloat(sellForm.quantity),
+          close_price: parseFloat(sellForm.close_price),
+          closed_at: sellForm.closed_at || today,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || 'Sell failed');
+        return;
+      }
+      setSellingId(null);
+      setSellForm({ quantity: '', close_price: '', closed_at: '' });
+      onRefresh();
+    } finally {
+      setSaving(false);
+    }
   };
 
   const totalShares = lots.reduce((s, l) => s + l.quantity, 0);
@@ -1204,22 +1314,97 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
               </tr>
             </thead>
             <tbody>
-              {lots.map(lot => (
-                <tr key={lot.id} style={{ borderBottom: '1px solid rgba(30,42,58,0.4)' }}>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '7px 10px', color: 'var(--text-secondary)' }}>{lot.acquired_at}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '7px 10px', textAlign: 'right', color: 'var(--text-primary)' }}>{lot.quantity}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '7px 10px', textAlign: 'right', color: 'var(--text-primary)' }}>{formatMoney(lot.cost_basis)}</td>
-                  <td style={{ padding: '7px 10px', textAlign: 'center' }}>
-                    <span className={`lot-badge ${lot.holding_period === 'long' ? 'lot-long' : 'lot-short'}`}>
-                      {lot.holding_period === 'long' ? 'LT' : 'ST'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '7px 6px', textAlign: 'center' }}>
-                    <button onClick={() => handleDelete(lot.id)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '13px', padding: '0 2px' }}>×</button>
-                  </td>
-                </tr>
-              ))}
+              {lots.map(lot => {
+                const isEditing = editingId === lot.id;
+                const isSelling = sellingId === lot.id;
+                const cellTd = { fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '7px 10px' };
+                const inlineInput = { fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '3px 5px', width: '100%', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '3px', color: 'var(--text-primary)' };
+                const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '12px', padding: '0 3px' };
+                return (
+                  <React.Fragment key={lot.id}>
+                    <tr style={{ borderBottom: (isEditing || isSelling) ? 'none' : '1px solid rgba(30,42,58,0.4)' }}>
+                      {isEditing ? (
+                        <>
+                          <td style={cellTd}>
+                            <input type="date" max={today} value={editForm.acquired_at} onChange={e => setEdit('acquired_at', e.target.value)} style={inlineInput} />
+                          </td>
+                          <td style={{ ...cellTd, textAlign: 'right' }}>
+                            <input type="number" min="0" step="any" value={editForm.quantity} onChange={e => setEdit('quantity', e.target.value)} style={{ ...inlineInput, textAlign: 'right' }} />
+                          </td>
+                          <td style={{ ...cellTd, textAlign: 'right' }}>
+                            <input type="number" min="0" step="any" value={editForm.cost_basis} onChange={e => setEdit('cost_basis', e.target.value)} style={{ ...inlineInput, textAlign: 'right' }} />
+                          </td>
+                          <td style={{ padding: '7px 10px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '10px' }}>—</td>
+                          <td style={{ padding: '7px 6px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            <button onClick={() => handleSaveEdit(lot.id)} disabled={saving} title="Save" style={{ ...iconBtn, color: 'var(--accent-green)' }}>✓</button>
+                            <button onClick={() => setEditingId(null)} title="Cancel" style={iconBtn}>×</button>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td style={{ ...cellTd, color: 'var(--text-secondary)' }}>{lot.acquired_at}</td>
+                          <td style={{ ...cellTd, textAlign: 'right', color: 'var(--text-primary)' }}>{lot.quantity}</td>
+                          <td style={{ ...cellTd, textAlign: 'right', color: 'var(--text-primary)' }}>{formatMoney(lot.cost_basis)}</td>
+                          <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                            <span className={`lot-badge ${lot.holding_period === 'long' ? 'lot-long' : 'lot-short'}`}>
+                              {lot.holding_period === 'long' ? 'LT' : 'ST'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '7px 6px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            <button onClick={() => startSell(lot)} title="Sell from this lot" style={iconBtn}>$</button>
+                            <button onClick={() => startEdit(lot)} title="Edit" style={iconBtn}>✎</button>
+                            <button onClick={() => handleDelete(lot.id)} title="Delete" style={{ ...iconBtn, fontSize: '13px' }}>×</button>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                    {isSelling && (
+                      <tr style={{ borderBottom: '1px solid rgba(30,42,58,0.4)', background: 'rgba(30,42,58,0.25)' }}>
+                        <td colSpan={5} style={{ padding: '10px 12px' }}>
+                          <div style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
+                            Sell from lot · acquired {lot.acquired_at} · {lot.quantity} avail
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '6px' }}>
+                            <div className="form-row" style={{ marginBottom: 0 }}>
+                              <label className="form-label">Shares</label>
+                              <input className="form-input" type="number" min="0" max={lot.quantity} step="any" value={sellForm.quantity} onChange={e => setSell('quantity', e.target.value)} />
+                            </div>
+                            <div className="form-row" style={{ marginBottom: 0 }}>
+                              <label className="form-label">Sell Price</label>
+                              <input className="form-input" type="number" min="0" step="any" placeholder={String(position.current_price?.toFixed?.(2) || '')} value={sellForm.close_price} onChange={e => setSell('close_price', e.target.value)} />
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '6px', alignItems: 'end' }}>
+                            <div className="form-row" style={{ marginBottom: 0 }}>
+                              <label className="form-label">Date</label>
+                              <input className="form-input" type="date" max={today} value={sellForm.closed_at} onChange={e => setSell('closed_at', e.target.value)} />
+                            </div>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <button type="button" onClick={() => handleSell(lot.id)} className="btn btn-primary" style={{ fontSize: '11px', padding: '6px 10px' }} disabled={saving || !sellForm.quantity || !sellForm.close_price}>
+                                {saving ? '…' : 'Sell'}
+                              </button>
+                              <button type="button" onClick={() => setSellingId(null)} className="btn" style={{ fontSize: '11px', padding: '6px 10px' }}>✕</button>
+                            </div>
+                          </div>
+                          {sellForm.quantity && sellForm.close_price && (
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                              Realized:{' '}
+                              <span style={{
+                                color: ((parseFloat(sellForm.close_price) - lot.cost_basis) * parseFloat(sellForm.quantity)) >= 0 ? 'var(--accent-green)' : 'var(--accent-red)',
+                                fontWeight: 600,
+                              }}>
+                                {formatMoney((parseFloat(sellForm.close_price) - lot.cost_basis) * parseFloat(sellForm.quantity))}
+                              </span>
+                              {' · '}
+                              {lot.holding_period === 'long' ? 'long-term' : 'short-term'}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1253,7 +1438,35 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
 }
 
 function ClosedPositionsTable({ positions, onDelete }) {
-  const sorted = [...positions].sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at));
+  const [sortCol, setSortCol] = React.useState('closed_at');
+  const [sortDir, setSortDir] = React.useState('desc');
+
+  const onSort = col => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('desc'); }
+  };
+
+  const colVal = (p, col) => {
+    switch (col) {
+      case 'symbol': return p.symbol;
+      case 'broker': return p.broker;
+      case 'quantity': return p.quantity;
+      case 'average_cost': return p.average_cost;
+      case 'close_price': return p.close_price;
+      case 'realized_gain': return p.realized_gain;
+      case 'realized_gain_pct': return p.realized_gain_pct;
+      case 'acquired_at': return p.acquired_at || '';
+      case 'closed_at': return p.closed_at;
+      default: return p.closed_at;
+    }
+  };
+
+  const sorted = [...positions].sort((a, b) => {
+    const av = colVal(a, sortCol), bv = colVal(b, sortCol);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
   if (sorted.length === 0) {
     return (
       <div className="empty-state">
@@ -1262,18 +1475,21 @@ function ClosedPositionsTable({ positions, onDelete }) {
       </div>
     );
   }
+
+  const sp = { sortCol, sortDir, onSort };
+
   return (
     <table>
       <thead>
         <tr>
-          <th>Symbol</th>
-          <th>Broker</th>
-          <th>Qty</th>
-          <th>Avg Cost</th>
-          <th>Close Price</th>
-          <th>Realized Gain</th>
-          <th>Acquired</th>
-          <th>Closed</th>
+          <SortTh label="Symbol" col="symbol" {...sp} />
+          <SortTh label="Broker" col="broker" {...sp} />
+          <SortTh label="Qty" col="quantity" {...sp} style={{textAlign:'right'}} />
+          <SortTh label="Avg Cost" col="average_cost" {...sp} style={{textAlign:'right'}} />
+          <SortTh label="Close Price" col="close_price" {...sp} style={{textAlign:'right'}} />
+          <SortTh label="Realized Gain" col="realized_gain" {...sp} style={{textAlign:'right'}} />
+          <SortTh label="Acquired" col="acquired_at" {...sp} />
+          <SortTh label="Closed" col="closed_at" {...sp} />
           <th></th>
         </tr>
       </thead>
@@ -2449,7 +2665,7 @@ function App() {
               <TaxLotsPanel
                 position={selectedPosition}
                 lots={taxLots[`${selectedPosition.symbol}-${selectedPosition.broker}`] || []}
-                onRefresh={fetchTaxLots}
+                onRefresh={() => { fetchTaxLots(); fetchPortfolio(); fetchClosed(); }}
               />
             ) : (
               <div style={{ padding: '20px 16px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center' }}>

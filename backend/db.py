@@ -227,6 +227,93 @@ def delete_tax_lot(lot_id: int) -> bool:
     return deleted
 
 
+def get_tax_lot(lot_id: int) -> TaxLot | None:
+    conn = _get_conn()
+    row = conn.execute("SELECT * FROM tax_lots WHERE id = ?", (lot_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    lot = TaxLot(
+        id=row["id"],
+        symbol=row["symbol"],
+        broker=BrokerName(row["broker"]),
+        quantity=row["quantity"],
+        cost_basis=row["cost_basis"],
+        acquired_at=row["acquired_at"],
+    )
+    lot.compute_holding_period()
+    return lot
+
+
+def update_tax_lot(
+    lot_id: int,
+    quantity: float | None = None,
+    cost_basis: float | None = None,
+    acquired_at: str | None = None,
+) -> TaxLot | None:
+    """Patch any subset of fields on an existing lot. Deletes if quantity drops to ≤ 0."""
+    conn = _get_conn()
+    row = conn.execute("SELECT * FROM tax_lots WHERE id = ?", (lot_id,)).fetchone()
+    if not row:
+        conn.close()
+        return None
+
+    new_qty = row["quantity"] if quantity is None else quantity
+    new_cost = row["cost_basis"] if cost_basis is None else cost_basis
+    new_date = row["acquired_at"] if acquired_at is None else acquired_at
+
+    if new_qty <= 0:
+        conn.execute("DELETE FROM tax_lots WHERE id = ?", (lot_id,))
+        conn.commit()
+        conn.close()
+        return None
+
+    conn.execute(
+        "UPDATE tax_lots SET quantity = ?, cost_basis = ?, acquired_at = ? WHERE id = ?",
+        (new_qty, new_cost, new_date, lot_id),
+    )
+    conn.commit()
+    conn.close()
+    return get_tax_lot(lot_id)
+
+
+def decrement_position_quantity(symbol: str, broker: str, delta: float) -> None:
+    """Reduce a position's quantity by delta and recompute derived fields.
+    Deletes the row if the resulting quantity is ≤ 0. No-op if the position
+    doesn't exist (e.g. live broker feed will reseed on next refresh)."""
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT * FROM positions WHERE symbol = ? AND broker = ? AND symbol != 'CASH'",
+        (symbol, broker),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return
+
+    new_qty = row["quantity"] - delta
+    if new_qty <= 0:
+        conn.execute("DELETE FROM positions WHERE id = ?", (row["id"],))
+        conn.commit()
+        conn.close()
+        return
+
+    avg_cost = row["average_cost"]
+    price = row["current_price"]
+    market_value = new_qty * price
+    cost_basis = new_qty * avg_cost
+    unrealized_gain = market_value - cost_basis
+    unrealized_gain_pct = (unrealized_gain / cost_basis * 100) if cost_basis else 0
+    conn.execute(
+        """UPDATE positions SET quantity = ?, market_value = ?,
+           unrealized_gain = ?, unrealized_gain_pct = ?, updated_at = ?
+           WHERE id = ?""",
+        (new_qty, market_value, unrealized_gain, unrealized_gain_pct,
+         datetime.now().isoformat(), row["id"]),
+    )
+    conn.commit()
+    conn.close()
+
+
 def save_closed_position(cp: ClosedPosition) -> ClosedPosition:
     """Insert a closed position and return it with its new id."""
     conn = _get_conn()

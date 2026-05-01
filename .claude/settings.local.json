@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sqlite3 /Users/ethan/Downloads/portfolio-tracker/portfolio.db \"SELECT COUNT\\(*\\) as position_count FROM positions;\")",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "mcp__Claude_Preview__preview_start",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "mcp__Claude_in_Chrome__navigate",
+      "mcp__Claude_in_Chrome__computer",
+      "mcp__Claude_in_Chrome__read_page",
+      "mcp__Claude_in_Chrome__browser_batch"
+    ]
+  }
+}

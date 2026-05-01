@@ -134,6 +134,78 @@ def api_delete_tax_lot(lot_id: int):
     return {"deleted": lot_id}
 
 
+class TaxLotPatch(PydanticBaseModel):
+    quantity: float | None = None
+    cost_basis: float | None = None
+    acquired_at: str | None = None
+
+
+@app.patch("/api/tax-lots/{lot_id}")
+def api_update_tax_lot(lot_id: int, body: TaxLotPatch):
+    """Edit any subset of a tax lot's fields. Deletes the lot if quantity drops to 0."""
+    if db.get_tax_lot(lot_id) is None:
+        raise HTTPException(404, f"Tax lot {lot_id} not found")
+    updated = db.update_tax_lot(
+        lot_id,
+        quantity=body.quantity,
+        cost_basis=body.cost_basis,
+        acquired_at=body.acquired_at,
+    )
+    return {"deleted": lot_id} if updated is None else updated
+
+
+class TaxLotSell(PydanticBaseModel):
+    quantity: float
+    close_price: float
+    closed_at: str | None = None  # YYYY-MM-DD; defaults to today
+
+
+@app.post("/api/tax-lots/{lot_id}/sell")
+def api_sell_from_tax_lot(lot_id: int, body: TaxLotSell):
+    """Sell N shares from a specific tax lot.
+
+    - Decrements (or deletes) the lot.
+    - Decrements the parent position quantity (live broker feeds will reseed
+      on next refresh, so this primarily matters for CSV-tracked positions).
+    - Creates a ClosedPosition record using the lot's cost basis and acquisition
+      date so realized gain and short/long classification are accurate.
+    """
+    from datetime import datetime as _dt
+
+    lot = db.get_tax_lot(lot_id)
+    if lot is None:
+        raise HTTPException(404, f"Tax lot {lot_id} not found")
+    if body.quantity <= 0:
+        raise HTTPException(400, "quantity must be > 0")
+    if body.quantity > lot.quantity + 1e-9:
+        raise HTTPException(
+            400, f"Cannot sell {body.quantity}; lot only has {lot.quantity}"
+        )
+
+    closed_at = body.closed_at or _dt.now().strftime("%Y-%m-%d")
+
+    cp = ClosedPosition(
+        symbol=lot.symbol,
+        name=lot.symbol,
+        broker=lot.broker,
+        quantity=body.quantity,
+        average_cost=lot.cost_basis,
+        close_price=body.close_price,
+        acquired_at=lot.acquired_at,
+        closed_at=closed_at,
+    )
+    cp.compute_derived()
+    saved_cp = db.save_closed_position(cp)
+
+    db.update_tax_lot(lot_id, quantity=lot.quantity - body.quantity)
+    db.decrement_position_quantity(lot.symbol, lot.broker.value, body.quantity)
+
+    return {
+        "closed_position": saved_cp,
+        "remaining_lot_quantity": max(0.0, lot.quantity - body.quantity),
+    }
+
+
 @app.get("/api/closed-positions")
 def api_get_closed_positions():
     """List all closed positions."""
