@@ -16,13 +16,14 @@ _ANALYZERS = {
     SignalType.SENTIMENT: sentiment.analyze,
 }
 
-# In-memory cache of latest scan results
-_cache: dict[str, SymbolSignalSummary] = {}
+# In-memory cache of latest scan results, scoped by user id for hosted MVP use.
+_cache: dict[str, dict[str, SymbolSignalSummary]] = {}
 
 
 def scan_symbol(
     symbol: str,
     sources: list[SignalType] | None = None,
+    user_id: str = "local-user",
 ) -> SymbolSignalSummary:
     """Run all (or selected) signal analyzers for a single symbol."""
     active = sources or list(_ANALYZERS.keys())
@@ -52,7 +53,7 @@ def scan_symbol(
         indicators=indicators,
     )
     summary.compute_composite()
-    _cache[symbol] = summary
+    _cache.setdefault(user_id, {})[symbol] = summary
     return summary
 
 
@@ -60,13 +61,14 @@ def scan_symbols(
     symbols: list[str],
     sources: list[SignalType] | None = None,
     max_workers: int = 4,
+    user_id: str = "local-user",
 ) -> dict[str, SymbolSignalSummary]:
     """Scan multiple symbols in parallel."""
     results: dict[str, SymbolSignalSummary] = {}
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
-            pool.submit(scan_symbol, sym, sources): sym
+            pool.submit(scan_symbol, sym, sources, user_id): sym
             for sym in symbols
         }
         for future in as_completed(futures):
@@ -80,15 +82,18 @@ def scan_symbols(
     return results
 
 
-def get_cached() -> dict[str, SymbolSignalSummary]:
+def get_cached(user_id: str = "local-user") -> dict[str, SymbolSignalSummary]:
     """Return all cached scan results."""
-    return dict(_cache)
+    return dict(_cache.get(user_id, {}))
 
 
-def get_cached_symbol(symbol: str) -> SymbolSignalSummary | None:
+def get_cached_symbol(symbol: str, user_id: str = "local-user") -> SymbolSignalSummary | None:
     """Return cached result for a single symbol."""
-    return _cache.get(symbol)
+    return _cache.get(user_id, {}).get(symbol)
 
 
-def clear_cache() -> None:
-    _cache.clear()
+def clear_cache(user_id: str | None = None) -> None:
+    if user_id is None:
+        _cache.clear()
+    else:
+        _cache.pop(user_id, None)

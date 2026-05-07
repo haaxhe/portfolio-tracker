@@ -1,6 +1,12 @@
-# Portfolio Tracker
+# WealthBrief
 
-Unified portfolio tracker for Robinhood & E*Trade accounts.
+Tax-aware portfolio tracker moving from a local prototype toward a web MVP.
+
+The current launch path is manual/CSV-first: holdings, cash, tax lots, closed
+positions, realized/unrealized P&L, snapshots, and export. Broker connectors are
+kept available for local experimentation, but are disabled by default for the web
+MVP because public broker sync should be handled through approved aggregation
+providers.
 
 ## Architecture
 
@@ -9,6 +15,7 @@ portfolio-tracker/
 ├── backend/
 │   ├── main.py              # FastAPI app entry point
 │   ├── config.py            # Settings & env vars
+│   ├── auth.py              # MVP request-owner boundary
 │   ├── brokers/
 │   │   ├── base.py          # Abstract broker interface
 │   │   ├── robinhood.py     # Robinhood via robin_stocks
@@ -21,6 +28,8 @@ portfolio-tracker/
 ├── frontend/
 │   └── dashboard.html        # Single-file React dashboard
 ├── requirements.txt
+├── docs/
+│   └── MVP_ARCHITECTURE.md
 ├── .env.example
 └── README.md
 ```
@@ -37,7 +46,7 @@ pip install -r requirements.txt
 
 # 3. Copy env config
 cp .env.example .env
-# Edit .env with your credentials
+# For local MVP mode, broker credentials are optional.
 
 # 4. Run (starts backend + serves dashboard)
 python -m backend.main
@@ -45,7 +54,57 @@ python -m backend.main
 # 5. Open http://localhost:8000
 ```
 
+## MVP Auth Modes
+
+Local development defaults to:
+
+```bash
+AUTH_MODE=local
+DEFAULT_USER_ID=local-user
+ENABLE_BROKER_CONNECTORS=false
+```
+
+For a private hosted MVP, use token mode behind HTTPS:
+
+```bash
+AUTH_MODE=token
+API_TOKEN=replace-with-a-long-random-secret
+CORS_ORIGINS=https://your-app.example
+```
+
+Requests in token mode must send:
+
+```http
+Authorization: Bearer <API_TOKEN>
+X-User-Id: <stable-user-id>
+```
+
+This is a bridge for private beta, not the final consumer auth system.
+
+Production Google login uses Supabase:
+
+```bash
+AUTH_MODE=supabase
+APP_BASE_URL=https://getwealthbrief.com
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_PUBLISHABLE_KEY=<publishable-key>
+DATABASE_URL=<supabase-postgres-connection-string>
+CORS_ORIGINS=https://getwealthbrief.com,https://www.getwealthbrief.com
+```
+
+The current single-file dashboard will add these headers automatically when the
+browser has:
+
+```js
+localStorage.setItem('portfolio_tracker_api_token', '<API_TOKEN>');
+localStorage.setItem('portfolio_tracker_user_id', '<stable-user-id>');
+```
+
 ## Broker Setup
+
+Broker connectors are disabled unless `ENABLE_BROKER_CONNECTORS=true`.
+For public launch, prefer a broker aggregation provider over direct broker
+password collection.
 
 ### CSV Import (Day 1)
 Export CSV from Robinhood / E*Trade and POST to:
@@ -54,7 +113,8 @@ POST http://localhost:8000/api/import/csv
 ```
 
 ### Robinhood (robin_stocks)
-- Unofficial API — set RH_USERNAME & RH_PASSWORD in .env
+- Unofficial API; not recommended for a public product.
+- Set RH_USERNAME & RH_PASSWORD in .env only for local experimentation.
 - Requires 2FA setup (TOTP) — see robin_stocks docs
 
 ### E*Trade (Official API)
@@ -73,3 +133,66 @@ POST http://localhost:8000/api/import/csv
 | POST | `/api/refresh` | Force refresh all brokers |
 | GET | `/api/export/csv` | Export unified CSV |
 | GET | `/` | Dashboard UI |
+
+## YouTube Market Monitor
+
+The low-cost YouTube monitor is deterministic by default: it checks configured
+channels, extracts available captions, scores market-related snippets with
+keywords, and stores compact results in SQLite. It does not call an LLM.
+If YouTube exposes videos but not captions to the backend request, the monitor
+falls back to title-only matching and marks the row's `transcript_status`.
+
+Optional OpenAI summarization runs only after a video passes that cheap filter.
+Set `OPENAI_API_KEY` and optionally `OPENAI_MODEL` to enable it for manual scans
+or scheduled runs.
+
+Configure channels in:
+
+```text
+config/youtube_sources.json
+```
+
+Run a manual scan:
+
+```bash
+python -m backend.youtube_monitor --config config/youtube_sources.json
+```
+
+Run a manual scan with LLM summaries:
+
+```bash
+OPENAI_API_KEY=sk-... python -m backend.youtube_monitor --config config/youtube_sources.json --summarize
+```
+
+Or trigger it from the API:
+
+```http
+POST /api/youtube-monitor/scan
+POST /api/youtube-monitor/scan?summarize=true
+GET  /api/youtube-monitor/mentions
+```
+
+Daily scheduling is disabled unless explicitly enabled:
+
+```bash
+YOUTUBE_MONITOR_ENABLED=true
+YOUTUBE_MONITOR_INTERVAL_HOURS=24
+YOUTUBE_MONITOR_CONFIG_PATH=config/youtube_sources.json
+YOUTUBE_MONITOR_LLM_ENABLED=false
+YOUTUBE_MONITOR_SUMMARIZE_LIMIT=3
+OPENAI_MODEL=gpt-5.2
+```
+
+## Web MVP Plan
+
+See [docs/MVP_ARCHITECTURE.md](docs/MVP_ARCHITECTURE.md) for the current
+architecture boundary, known limitations, and production direction.
+
+See [docs/LAUNCH_CHECKLIST.md](docs/LAUNCH_CHECKLIST.md) for the
+`getwealthbrief.com` Supabase/Render/Cloudflare setup steps.
+
+## Tests
+
+```bash
+python -m unittest discover -s tests
+```

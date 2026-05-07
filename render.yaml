@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: wealthbrief-web
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/public-config
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: APP_BASE_URL
+        value: https://getwealthbrief.com
+      - key: AUTH_MODE
+        value: supabase
+      - key: CORS_ORIGINS
+        value: https://getwealthbrief.com,https://www.getwealthbrief.com
+      - key: ENABLE_BROKER_CONNECTORS
+        value: false
+      - key: REFRESH_INTERVAL_MINUTES
+        value: 0
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ALPACA_API_KEY
+        sync: false
+      - key: ALPACA_SECRET_KEY
+        sync: false

@@ -1,5 +1,7 @@
 fastapi==0.115.0
 uvicorn==0.30.0
+psycopg[binary]>=3.2
+requests>=2.32
 robin-stocks==3.4.0
 rauth==0.7.3
 python-dotenv==1.0.1

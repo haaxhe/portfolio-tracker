@@ -42,9 +42,9 @@ class PortfolioSummary(BaseModel):
     total_cost: float = 0.0
     total_gain: float = 0.0
     total_gain_pct: float = 0.0
-    positions: list[Position] = []
-    broker_breakdown: dict[str, float] = {}  # broker -> total value
-    sector_breakdown: dict[str, float] = {}  # sector -> total value
+    positions: list[Position] = Field(default_factory=list)
+    broker_breakdown: dict[str, float] = Field(default_factory=dict)  # broker -> total value
+    sector_breakdown: dict[str, float] = Field(default_factory=dict)  # sector -> total value
     last_refresh: datetime | None = None
 
     def compute_from_positions(self) -> None:

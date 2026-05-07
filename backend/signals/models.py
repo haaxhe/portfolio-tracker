@@ -27,15 +27,15 @@ class Signal(BaseModel):
     conviction: int = Field(ge=1, le=5, description="1=weak, 5=very strong")
     name: str
     description: str
-    data: dict = {}
+    data: dict = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=datetime.now)
 
 
 class SymbolSignalSummary(BaseModel):
     """Aggregated signal view for one symbol."""
     symbol: str
-    signals: list[Signal] = []
-    indicators: dict = {}
+    signals: list[Signal] = Field(default_factory=list)
+    indicators: dict = Field(default_factory=dict)
     composite_score: float = 0.0
     direction: SignalDirection = SignalDirection.NEUTRAL
     signal_count: int = 0

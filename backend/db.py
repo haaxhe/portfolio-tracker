@@ -1,4 +1,8 @@
-"""SQLite persistence for positions and historical snapshots."""
+"""Persistence for positions and historical snapshots.
+
+SQLite remains the default local development store. Set DATABASE_URL to a
+Postgres URL for hosted deployments such as Supabase.
+"""
 import json
 import sqlite3
 import logging
@@ -9,17 +13,143 @@ from backend.config import settings
 logger = logging.getLogger(__name__)
 
 
-def _get_conn() -> sqlite3.Connection:
+def _using_postgres() -> bool:
+    return settings.DATABASE_URL.startswith(("postgres://", "postgresql://"))
+
+
+def _owner(user_id: str | None = None) -> str:
+    return user_id or settings.DEFAULT_USER_ID
+
+
+class _PostgresConn:
+    def __init__(self):
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+        except ImportError as e:
+            raise RuntimeError(
+                "DATABASE_URL is set to Postgres, but psycopg is not installed. "
+                "Install requirements.txt in the deployment environment."
+            ) from e
+
+        self._conn = psycopg.connect(settings.DATABASE_URL, row_factory=dict_row)
+
+    def execute(self, sql: str, params: tuple | list = ()):
+        return self._conn.execute(sql.replace("?", "%s"), params)
+
+    def executescript(self, script: str) -> None:
+        for statement in script.split(";"):
+            statement = statement.strip()
+            if statement:
+                self.execute(statement)
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def close(self) -> None:
+        self._conn.close()
+
+
+def _get_conn() -> sqlite3.Connection | _PostgresConn:
+    if _using_postgres():
+        return _PostgresConn()
     conn = sqlite3.connect(settings.DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    if _using_postgres():
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl}")
+        return
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
+def _insert_and_get_id(conn, sql: str, params: tuple) -> int:
+    if _using_postgres():
+        row = conn.execute(f"{sql} RETURNING id", params).fetchone()
+        return int(row["id"])
+    cur = conn.execute(sql, params)
+    return int(cur.lastrowid)
+
+
 def init_db() -> None:
     conn = _get_conn()
-    conn.executescript("""
+    if _using_postgres():
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS positions (
+            id BIGSERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL DEFAULT 'local-user',
+            symbol TEXT NOT NULL,
+            name TEXT DEFAULT '',
+            quantity DOUBLE PRECISION DEFAULT 0,
+            average_cost DOUBLE PRECISION DEFAULT 0,
+            current_price DOUBLE PRECISION DEFAULT 0,
+            market_value DOUBLE PRECISION DEFAULT 0,
+            unrealized_gain DOUBLE PRECISION DEFAULT 0,
+            unrealized_gain_pct DOUBLE PRECISION DEFAULT 0,
+            broker TEXT NOT NULL,
+            account_id TEXT DEFAULT '',
+            asset_type TEXT DEFAULT 'stock',
+            acquired_at TEXT DEFAULT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS tax_lots (
+            id BIGSERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL DEFAULT 'local-user',
+            symbol TEXT NOT NULL,
+            broker TEXT NOT NULL,
+            quantity DOUBLE PRECISION NOT NULL,
+            cost_basis DOUBLE PRECISION NOT NULL,
+            acquired_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS closed_positions (
+            id BIGSERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL DEFAULT 'local-user',
+            symbol TEXT NOT NULL,
+            name TEXT DEFAULT '',
+            broker TEXT NOT NULL,
+            quantity DOUBLE PRECISION DEFAULT 0,
+            average_cost DOUBLE PRECISION DEFAULT 0,
+            close_price DOUBLE PRECISION DEFAULT 0,
+            realized_gain DOUBLE PRECISION DEFAULT 0,
+            realized_gain_pct DOUBLE PRECISION DEFAULT 0,
+            acquired_at TEXT DEFAULT NULL,
+            closed_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS snapshots (
+            id BIGSERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL DEFAULT 'local-user',
+            timestamp TEXT NOT NULL,
+            total_value DOUBLE PRECISION NOT NULL,
+            total_cost DOUBLE PRECISION NOT NULL,
+            total_gain DOUBLE PRECISION NOT NULL,
+            positions_json TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS signals (
+            id BIGSERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL DEFAULT 'local-user',
+            symbol TEXT NOT NULL,
+            signal_type TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            conviction INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            data_json TEXT DEFAULT '{}',
+            timestamp TEXT NOT NULL
+        );
+        """)
+    else:
+        conn.executescript("""
         CREATE TABLE IF NOT EXISTS positions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL DEFAULT 'local-user',
             symbol TEXT NOT NULL,
             name TEXT DEFAULT '',
             quantity REAL DEFAULT 0,
@@ -37,6 +167,7 @@ def init_db() -> None:
 
         CREATE TABLE IF NOT EXISTS tax_lots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL DEFAULT 'local-user',
             symbol TEXT NOT NULL,
             broker TEXT NOT NULL,
             quantity REAL NOT NULL,
@@ -48,6 +179,7 @@ def init_db() -> None:
 
         CREATE TABLE IF NOT EXISTS closed_positions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL DEFAULT 'local-user',
             symbol TEXT NOT NULL,
             name TEXT DEFAULT '',
             broker TEXT NOT NULL,
@@ -62,6 +194,7 @@ def init_db() -> None:
 
         CREATE TABLE IF NOT EXISTS snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL DEFAULT 'local-user',
             timestamp TEXT NOT NULL,
             total_value REAL NOT NULL,
             total_cost REAL NOT NULL,
@@ -75,6 +208,7 @@ def init_db() -> None:
 
         CREATE TABLE IF NOT EXISTS signals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL DEFAULT 'local-user',
             symbol TEXT NOT NULL,
             signal_type TEXT NOT NULL,
             direction TEXT NOT NULL,
@@ -87,54 +221,132 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol);
         CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(timestamp);
     """)
-    # Migrate existing DB: add acquired_at if missing
-    try:
-        conn.execute("ALTER TABLE positions ADD COLUMN acquired_at TEXT DEFAULT NULL")
-        conn.commit()
-        logger.info("Migrated positions table: added acquired_at column")
-    except Exception:
-        pass  # Column already exists
+    for table in ("positions", "tax_lots", "closed_positions", "snapshots", "signals"):
+        _ensure_column(conn, table, "user_id", f"TEXT NOT NULL DEFAULT '{settings.DEFAULT_USER_ID}'")
+    _ensure_column(conn, "positions", "acquired_at", "TEXT DEFAULT NULL")
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_tax_lots_user_sym ON tax_lots(user_id, symbol, broker);
+        CREATE INDEX IF NOT EXISTS idx_positions_user_broker ON positions(user_id, broker);
+        CREATE INDEX IF NOT EXISTS idx_positions_user_symbol ON positions(user_id, symbol);
+        CREATE INDEX IF NOT EXISTS idx_snapshots_user_ts ON snapshots(user_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_signals_user_symbol ON signals(user_id, symbol);
+        CREATE INDEX IF NOT EXISTS idx_signals_user_ts ON signals(user_id, timestamp);
+    """)
+    conn.commit()
     conn.close()
     logger.info("Database initialized")
 
 
-def upsert_cash(broker: str, amount: float) -> None:
+def upsert_cash(broker: str, amount: float, user_id: str | None = None) -> None:
     """Set the cash balance for a broker, replacing any existing cash row."""
     from datetime import datetime
+    owner = _owner(user_id)
     conn = _get_conn()
     conn.execute(
-        "DELETE FROM positions WHERE broker = ? AND symbol = 'CASH'", (broker,)
+        "DELETE FROM positions WHERE user_id = ? AND broker = ? AND symbol = 'CASH'",
+        (owner, broker),
     )
     if amount > 0:
         conn.execute(
             """INSERT INTO positions
-            (symbol, name, quantity, average_cost, current_price,
+            (user_id, symbol, name, quantity, average_cost, current_price,
              market_value, unrealized_gain, unrealized_gain_pct,
              broker, account_id, asset_type, updated_at)
-            VALUES ('CASH','Cash',?,1.0,1.0,?,0.0,0.0,?,'','cash',?)""",
-            (amount, amount, broker, datetime.now().isoformat()),
+            VALUES (?,'CASH','Cash',?,1.0,1.0,?,0.0,0.0,?,'','cash',?)""",
+            (owner, amount, amount, broker, datetime.now().isoformat()),
         )
     conn.commit()
     conn.close()
 
 
-def save_positions(positions: list[Position]) -> None:
+def upsert_position(position: Position, user_id: str | None = None) -> Position:
+    """Insert or update one non-cash position without replacing broker holdings."""
+    owner = _owner(user_id)
+    position.symbol = position.symbol.upper().strip()
+    position.name = position.name or position.symbol
+    position.compute_derived()
+
+    conn = _get_conn()
+    row = conn.execute(
+        """SELECT id FROM positions
+           WHERE user_id = ? AND symbol = ? AND broker = ? AND asset_type != 'cash'
+           ORDER BY id LIMIT 1""",
+        (owner, position.symbol, position.broker.value),
+    ).fetchone()
+
+    if row:
+        conn.execute(
+            """UPDATE positions SET
+               name = ?, quantity = ?, average_cost = ?, current_price = ?,
+               market_value = ?, unrealized_gain = ?, unrealized_gain_pct = ?,
+               account_id = ?, asset_type = ?, updated_at = ?
+               WHERE id = ?""",
+            (
+                position.name,
+                position.quantity,
+                position.average_cost,
+                position.current_price,
+                position.market_value,
+                position.unrealized_gain,
+                position.unrealized_gain_pct,
+                position.account_id,
+                position.asset_type,
+                position.updated_at.isoformat(),
+                row["id"],
+            ),
+        )
+        position.id = row["id"]
+    else:
+        insert_sql = """INSERT INTO positions
+            (user_id, symbol, name, quantity, average_cost, current_price,
+             market_value, unrealized_gain, unrealized_gain_pct,
+             broker, account_id, asset_type, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+        position.id = _insert_and_get_id(
+            conn,
+            insert_sql,
+            (
+                owner,
+                position.symbol,
+                position.name,
+                position.quantity,
+                position.average_cost,
+                position.current_price,
+                position.market_value,
+                position.unrealized_gain,
+                position.unrealized_gain_pct,
+                position.broker.value,
+                position.account_id,
+                position.asset_type,
+                position.updated_at.isoformat(),
+            ),
+        )
+
+    conn.commit()
+    conn.close()
+    return position
+
+
+def save_positions(positions: list[Position], user_id: str | None = None) -> None:
     """Replace all non-cash positions for each broker present in the list."""
+    owner = _owner(user_id)
     conn = _get_conn()
     brokers_seen = set(p.broker.value for p in positions)
     for broker in brokers_seen:
         conn.execute(
-            "DELETE FROM positions WHERE broker = ? AND symbol != 'CASH'", (broker,)
+            "DELETE FROM positions WHERE user_id = ? AND broker = ? AND symbol != 'CASH'",
+            (owner, broker),
         )
 
     for p in positions:
         conn.execute(
             """INSERT INTO positions
-            (symbol, name, quantity, average_cost, current_price,
+            (user_id, symbol, name, quantity, average_cost, current_price,
              market_value, unrealized_gain, unrealized_gain_pct,
              broker, account_id, asset_type, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
+                owner,
                 p.symbol, p.name, p.quantity, p.average_cost, p.current_price,
                 p.market_value, p.unrealized_gain, p.unrealized_gain_pct,
                 p.broker.value, p.account_id, p.asset_type,
@@ -145,14 +357,15 @@ def save_positions(positions: list[Position]) -> None:
     conn.close()
 
 
-def load_positions(broker: str | None = None) -> list[Position]:
+def load_positions(broker: str | None = None, user_id: str | None = None) -> list[Position]:
+    owner = _owner(user_id)
     conn = _get_conn()
     if broker:
         rows = conn.execute(
-            "SELECT * FROM positions WHERE broker = ?", (broker,)
+            "SELECT * FROM positions WHERE user_id = ? AND broker = ?", (owner, broker)
         ).fetchall()
     else:
-        rows = conn.execute("SELECT * FROM positions").fetchall()
+        rows = conn.execute("SELECT * FROM positions WHERE user_id = ?", (owner,)).fetchall()
     conn.close()
 
     return [
@@ -175,32 +388,42 @@ def load_positions(broker: str | None = None) -> list[Position]:
     ]
 
 
-def save_tax_lot(lot: TaxLot) -> TaxLot:
+def save_tax_lot(lot: TaxLot, user_id: str | None = None) -> TaxLot:
+    owner = _owner(user_id)
     conn = _get_conn()
-    cur = conn.execute(
-        "INSERT INTO tax_lots (symbol, broker, quantity, cost_basis, acquired_at) VALUES (?, ?, ?, ?, ?)",
-        (lot.symbol, lot.broker.value, lot.quantity, lot.cost_basis, lot.acquired_at),
+    lot.id = _insert_and_get_id(
+        conn,
+        "INSERT INTO tax_lots (user_id, symbol, broker, quantity, cost_basis, acquired_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (owner, lot.symbol, lot.broker.value, lot.quantity, lot.cost_basis, lot.acquired_at),
     )
-    lot.id = cur.lastrowid
     lot.compute_holding_period()
     conn.commit()
     conn.close()
     return lot
 
 
-def load_tax_lots(symbol: str | None = None, broker: str | None = None) -> list[TaxLot]:
+def load_tax_lots(
+    symbol: str | None = None,
+    broker: str | None = None,
+    user_id: str | None = None,
+) -> list[TaxLot]:
+    owner = _owner(user_id)
     conn = _get_conn()
     if symbol and broker:
         rows = conn.execute(
-            "SELECT * FROM tax_lots WHERE symbol = ? AND broker = ? ORDER BY acquired_at",
-            (symbol, broker),
+            "SELECT * FROM tax_lots WHERE user_id = ? AND symbol = ? AND broker = ? ORDER BY acquired_at",
+            (owner, symbol, broker),
         ).fetchall()
     elif symbol:
         rows = conn.execute(
-            "SELECT * FROM tax_lots WHERE symbol = ? ORDER BY acquired_at", (symbol,)
+            "SELECT * FROM tax_lots WHERE user_id = ? AND symbol = ? ORDER BY acquired_at",
+            (owner, symbol),
         ).fetchall()
     else:
-        rows = conn.execute("SELECT * FROM tax_lots ORDER BY symbol, acquired_at").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM tax_lots WHERE user_id = ? ORDER BY symbol, acquired_at",
+            (owner,),
+        ).fetchall()
     conn.close()
     lots = [
         TaxLot(
@@ -218,18 +441,22 @@ def load_tax_lots(symbol: str | None = None, broker: str | None = None) -> list[
     return lots
 
 
-def delete_tax_lot(lot_id: int) -> bool:
+def delete_tax_lot(lot_id: int, user_id: str | None = None) -> bool:
+    owner = _owner(user_id)
     conn = _get_conn()
-    cur = conn.execute("DELETE FROM tax_lots WHERE id = ?", (lot_id,))
+    cur = conn.execute("DELETE FROM tax_lots WHERE user_id = ? AND id = ?", (owner, lot_id))
     deleted = cur.rowcount > 0
     conn.commit()
     conn.close()
     return deleted
 
 
-def get_tax_lot(lot_id: int) -> TaxLot | None:
+def get_tax_lot(lot_id: int, user_id: str | None = None) -> TaxLot | None:
+    owner = _owner(user_id)
     conn = _get_conn()
-    row = conn.execute("SELECT * FROM tax_lots WHERE id = ?", (lot_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM tax_lots WHERE user_id = ? AND id = ?", (owner, lot_id)
+    ).fetchone()
     conn.close()
     if not row:
         return None
@@ -250,10 +477,14 @@ def update_tax_lot(
     quantity: float | None = None,
     cost_basis: float | None = None,
     acquired_at: str | None = None,
+    user_id: str | None = None,
 ) -> TaxLot | None:
     """Patch any subset of fields on an existing lot. Deletes if quantity drops to ≤ 0."""
+    owner = _owner(user_id)
     conn = _get_conn()
-    row = conn.execute("SELECT * FROM tax_lots WHERE id = ?", (lot_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM tax_lots WHERE user_id = ? AND id = ?", (owner, lot_id)
+    ).fetchone()
     if not row:
         conn.close()
         return None
@@ -263,28 +494,34 @@ def update_tax_lot(
     new_date = row["acquired_at"] if acquired_at is None else acquired_at
 
     if new_qty <= 0:
-        conn.execute("DELETE FROM tax_lots WHERE id = ?", (lot_id,))
+        conn.execute("DELETE FROM tax_lots WHERE user_id = ? AND id = ?", (owner, lot_id))
         conn.commit()
         conn.close()
         return None
 
     conn.execute(
-        "UPDATE tax_lots SET quantity = ?, cost_basis = ?, acquired_at = ? WHERE id = ?",
-        (new_qty, new_cost, new_date, lot_id),
+        "UPDATE tax_lots SET quantity = ?, cost_basis = ?, acquired_at = ? WHERE user_id = ? AND id = ?",
+        (new_qty, new_cost, new_date, owner, lot_id),
     )
     conn.commit()
     conn.close()
-    return get_tax_lot(lot_id)
+    return get_tax_lot(lot_id, user_id=owner)
 
 
-def decrement_position_quantity(symbol: str, broker: str, delta: float) -> None:
+def decrement_position_quantity(
+    symbol: str,
+    broker: str,
+    delta: float,
+    user_id: str | None = None,
+) -> None:
     """Reduce a position's quantity by delta and recompute derived fields.
     Deletes the row if the resulting quantity is ≤ 0. No-op if the position
     doesn't exist (e.g. live broker feed will reseed on next refresh)."""
+    owner = _owner(user_id)
     conn = _get_conn()
     row = conn.execute(
-        "SELECT * FROM positions WHERE symbol = ? AND broker = ? AND symbol != 'CASH'",
-        (symbol, broker),
+        "SELECT * FROM positions WHERE user_id = ? AND symbol = ? AND broker = ? AND symbol != 'CASH'",
+        (owner, symbol, broker),
     ).fetchone()
     if not row:
         conn.close()
@@ -314,30 +551,34 @@ def decrement_position_quantity(symbol: str, broker: str, delta: float) -> None:
     conn.close()
 
 
-def save_closed_position(cp: ClosedPosition) -> ClosedPosition:
+def save_closed_position(cp: ClosedPosition, user_id: str | None = None) -> ClosedPosition:
     """Insert a closed position and return it with its new id."""
+    owner = _owner(user_id)
     conn = _get_conn()
-    cur = conn.execute(
+    cp.id = _insert_and_get_id(
+        conn,
         """INSERT INTO closed_positions
-        (symbol, name, broker, quantity, average_cost, close_price,
+        (user_id, symbol, name, broker, quantity, average_cost, close_price,
          realized_gain, realized_gain_pct, acquired_at, closed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
+            owner,
             cp.symbol, cp.name, cp.broker.value, cp.quantity,
             cp.average_cost, cp.close_price, cp.realized_gain,
             cp.realized_gain_pct, cp.acquired_at, cp.closed_at,
         ),
     )
-    cp.id = cur.lastrowid
     conn.commit()
     conn.close()
     return cp
 
 
-def load_closed_positions() -> list[ClosedPosition]:
+def load_closed_positions(user_id: str | None = None) -> list[ClosedPosition]:
+    owner = _owner(user_id)
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT * FROM closed_positions ORDER BY closed_at DESC"
+        "SELECT * FROM closed_positions WHERE user_id = ? ORDER BY closed_at DESC",
+        (owner,),
     ).fetchall()
     conn.close()
     return [
@@ -358,16 +599,21 @@ def load_closed_positions() -> list[ClosedPosition]:
     ]
 
 
-def delete_closed_position(position_id: int) -> bool:
+def delete_closed_position(position_id: int, user_id: str | None = None) -> bool:
+    owner = _owner(user_id)
     conn = _get_conn()
-    cur = conn.execute("DELETE FROM closed_positions WHERE id = ?", (position_id,))
+    cur = conn.execute(
+        "DELETE FROM closed_positions WHERE user_id = ? AND id = ?",
+        (owner, position_id),
+    )
     deleted = cur.rowcount > 0
     conn.commit()
     conn.close()
     return deleted
 
 
-def save_snapshot(positions: list[Position]) -> None:
+def save_snapshot(positions: list[Position], user_id: str | None = None) -> None:
+    owner = _owner(user_id)
     total_value = sum(p.market_value for p in positions)
     total_cost = sum(p.quantity * p.average_cost for p in positions)
     total_gain = total_value - total_cost
@@ -375,79 +621,133 @@ def save_snapshot(positions: list[Position]) -> None:
 
     conn = _get_conn()
     conn.execute(
-        """INSERT INTO snapshots (timestamp, total_value, total_cost, total_gain, positions_json)
-        VALUES (?, ?, ?, ?, ?)""",
-        (datetime.now().isoformat(), total_value, total_cost, total_gain, positions_json),
+        """INSERT INTO snapshots (user_id, timestamp, total_value, total_cost, total_gain, positions_json)
+        VALUES (?, ?, ?, ?, ?, ?)""",
+        (owner, datetime.now().isoformat(), total_value, total_cost, total_gain, positions_json),
     )
     conn.commit()
     conn.close()
 
 
-def load_snapshots(limit: int = 90) -> list[dict]:
+def load_snapshots(limit: int = 90, user_id: str | None = None) -> list[dict]:
+    owner = _owner(user_id)
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT timestamp, total_value, total_cost, total_gain FROM snapshots ORDER BY timestamp DESC LIMIT ?",
-        (limit,),
+        """SELECT timestamp, total_value, total_cost, total_gain
+           FROM snapshots WHERE user_id = ?
+           ORDER BY timestamp DESC LIMIT ?""",
+        (owner, limit),
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def load_daily_snapshots(days: int = 400) -> list[dict]:
+def load_daily_snapshots(days: int = 400, user_id: str | None = None) -> list[dict]:
     """Return the last snapshot of each calendar day (for charting)."""
+    owner = _owner(user_id)
     conn = _get_conn()
     rows = conn.execute(
         """SELECT substr(timestamp,1,10) as date,
                   total_value, total_cost, total_gain
            FROM snapshots
-           WHERE id IN (
-               SELECT MAX(id) FROM snapshots GROUP BY substr(timestamp,1,10)
+           WHERE user_id = ?
+             AND id IN (
+               SELECT MAX(id) FROM snapshots WHERE user_id = ? GROUP BY substr(timestamp,1,10)
            )
            ORDER BY date ASC
            LIMIT ?""",
-        (days,),
+        (owner, owner, days),
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def delete_broker_positions(broker_name: str, user_id: str | None = None) -> int:
+    """Delete all non-cash positions for one broker owned by the user."""
+    owner = _owner(user_id)
+    conn = _get_conn()
+    cur = conn.execute(
+        "DELETE FROM positions WHERE user_id = ? AND broker = ? AND symbol != 'CASH'",
+        (owner, broker_name),
+    )
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
 
 
 # ── Portfolio History (manual year-end entries) ───────────────
 
 def init_portfolio_history_table() -> None:
     conn = _get_conn()
-    conn.execute("""
+    if _using_postgres():
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_history (
+            id BIGSERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL DEFAULT 'local-user',
+            date TEXT NOT NULL,
+            total_value DOUBLE PRECISION NOT NULL,
+            label TEXT DEFAULT '',
+            is_estimate INTEGER DEFAULT 1,
+            UNIQUE(user_id, date)
+        )
+        """)
+    else:
+        conn.execute("""
         CREATE TABLE IF NOT EXISTS portfolio_history (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            date        TEXT NOT NULL UNIQUE,
+            user_id     TEXT NOT NULL DEFAULT 'local-user',
+            date        TEXT NOT NULL,
             total_value REAL NOT NULL,
             label       TEXT DEFAULT '',
-            is_estimate INTEGER DEFAULT 1
+            is_estimate INTEGER DEFAULT 1,
+            UNIQUE(user_id, date)
         )
     """)
+    _ensure_column(conn, "portfolio_history", "user_id", f"TEXT NOT NULL DEFAULT '{settings.DEFAULT_USER_ID}'")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_portfolio_history_user_date ON portfolio_history(user_id, date)"
+    )
     conn.commit()
     conn.close()
 
 
 def save_portfolio_history_entry(
-    date: str, total_value: float, label: str = "", is_estimate: bool = True
+    date: str,
+    total_value: float,
+    label: str = "",
+    is_estimate: bool = True,
+    user_id: str | None = None,
 ) -> dict:
+    owner = _owner(user_id)
     conn = _get_conn()
     cur = conn.execute(
-        "INSERT OR REPLACE INTO portfolio_history (date, total_value, label, is_estimate) VALUES (?,?,?,?)",
-        (date, total_value, label, 1 if is_estimate else 0),
+        """INSERT INTO portfolio_history (user_id, date, total_value, label, is_estimate)
+           VALUES (?,?,?,?,?)
+           ON CONFLICT(user_id, date) DO UPDATE SET
+             total_value = excluded.total_value,
+             label = excluded.label,
+             is_estimate = excluded.is_estimate""",
+        (owner, date, total_value, label, 1 if is_estimate else 0),
     )
-    entry_id = cur.lastrowid
+    row = conn.execute(
+        "SELECT id FROM portfolio_history WHERE user_id = ? AND date = ?", (owner, date)
+    ).fetchone()
+    entry_id = row["id"] if row else cur.lastrowid
     conn.commit()
     conn.close()
     return {"id": entry_id, "date": date, "total_value": total_value,
             "label": label, "is_estimate": is_estimate}
 
 
-def load_portfolio_history() -> list[dict]:
+def load_portfolio_history(user_id: str | None = None) -> list[dict]:
+    owner = _owner(user_id)
     conn = _get_conn()
     try:
         rows = conn.execute(
-            "SELECT id, date, total_value, label, is_estimate FROM portfolio_history ORDER BY date"
+            """SELECT id, date, total_value, label, is_estimate
+               FROM portfolio_history WHERE user_id = ? ORDER BY date""",
+            (owner,),
         ).fetchall()
     except Exception:
         rows = []
@@ -455,9 +755,12 @@ def load_portfolio_history() -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def delete_portfolio_history_entry(entry_id: int) -> bool:
+def delete_portfolio_history_entry(entry_id: int, user_id: str | None = None) -> bool:
+    owner = _owner(user_id)
     conn = _get_conn()
-    cur = conn.execute("DELETE FROM portfolio_history WHERE id = ?", (entry_id,))
+    cur = conn.execute(
+        "DELETE FROM portfolio_history WHERE user_id = ? AND id = ?", (owner, entry_id)
+    )
     deleted = cur.rowcount > 0
     conn.commit()
     conn.close()
@@ -466,20 +769,21 @@ def delete_portfolio_history_entry(entry_id: int) -> bool:
 
 # ── Signals persistence ────────────────────────────────────────
 
-def save_signals(signals: list[dict]) -> None:
+def save_signals(signals: list[dict], user_id: str | None = None) -> None:
     """Save a batch of signals (replaces previous signals for each symbol)."""
     if not signals:
         return
+    owner = _owner(user_id)
     conn = _get_conn()
     symbols_seen = set(s["symbol"] for s in signals)
     for sym in symbols_seen:
-        conn.execute("DELETE FROM signals WHERE symbol = ?", (sym,))
+        conn.execute("DELETE FROM signals WHERE user_id = ? AND symbol = ?", (owner, sym))
     for s in signals:
         conn.execute(
             """INSERT INTO signals
-            (symbol, signal_type, direction, conviction, name, description, data_json, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (s["symbol"], s["signal_type"], s["direction"], s["conviction"],
+            (user_id, symbol, signal_type, direction, conviction, name, description, data_json, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (owner, s["symbol"], s["signal_type"], s["direction"], s["conviction"],
              s["name"], s["description"], s.get("data_json", "{}"),
              s["timestamp"]),
         )
@@ -487,28 +791,32 @@ def save_signals(signals: list[dict]) -> None:
     conn.close()
 
 
-def load_signals(symbol: str | None = None) -> list[dict]:
+def load_signals(symbol: str | None = None, user_id: str | None = None) -> list[dict]:
     """Load signals, optionally filtered by symbol."""
+    owner = _owner(user_id)
     conn = _get_conn()
     if symbol:
         rows = conn.execute(
-            "SELECT * FROM signals WHERE symbol = ? ORDER BY timestamp DESC", (symbol,)
+            "SELECT * FROM signals WHERE user_id = ? AND symbol = ? ORDER BY timestamp DESC",
+            (owner, symbol),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT * FROM signals ORDER BY symbol, timestamp DESC"
+            "SELECT * FROM signals WHERE user_id = ? ORDER BY symbol, timestamp DESC",
+            (owner,),
         ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def clear_signals(symbol: str | None = None) -> int:
+def clear_signals(symbol: str | None = None, user_id: str | None = None) -> int:
     """Clear signals, optionally for a specific symbol."""
+    owner = _owner(user_id)
     conn = _get_conn()
     if symbol:
-        cur = conn.execute("DELETE FROM signals WHERE symbol = ?", (symbol,))
+        cur = conn.execute("DELETE FROM signals WHERE user_id = ? AND symbol = ?", (owner, symbol))
     else:
-        cur = conn.execute("DELETE FROM signals")
+        cur = conn.execute("DELETE FROM signals WHERE user_id = ?", (owner,))
     deleted = cur.rowcount
     conn.commit()
     conn.close()

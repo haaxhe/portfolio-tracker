@@ -1,0 +1,37 @@
+{
+  "lookback_days": 3,
+  "max_videos_per_channel": 5,
+  "sources": [
+    {
+      "name": "Meet Kevin",
+      "channel_id": "UCUvvj5lwue7PspotMDjk5UA",
+      "channel_url": "https://www.youtube.com/@MeetKevin/videos",
+      "enabled": true
+    }
+  ],
+  "keywords": [
+    "stock",
+    "stocks",
+    "market",
+    "nasdaq",
+    "s&p",
+    "qqq",
+    "fed",
+    "powell",
+    "inflation",
+    "rates",
+    "tariff",
+    "earnings",
+    "guidance",
+    "recession",
+    "bullish",
+    "bearish",
+    "software",
+    "hardware",
+    "ai",
+    "tesla",
+    "spacex",
+    "gamestop",
+    "ebay"
+  ]
+}

@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
@@ -68,6 +69,7 @@
     font-family: var(--font-mono);
     margin-top: 4px;
   }
+  .prices-as-of { opacity: 0.65; }
   .header-actions { display: flex; gap: 10px; }
   .btn {
     font-family: var(--font-mono);
@@ -618,6 +620,113 @@
 const { useState, useEffect, useCallback, useRef } = React;
 
 const API = '';
+const API_AUTH_TOKEN_KEY = 'portfolio_tracker_api_token';
+const API_USER_ID_KEY = 'portfolio_tracker_user_id';
+const originalFetch = window.fetch.bind(window);
+
+window.fetch = (input, init = {}) => {
+  const url = typeof input === 'string' ? input : input?.url;
+  const token = localStorage.getItem(API_AUTH_TOKEN_KEY);
+  const isApiRequest = typeof url === 'string' && (
+    url.startsWith('/api/') || url.startsWith(`${API}/api/`) || url.includes('/api/')
+  );
+  if (!token || !isApiRequest) return originalFetch(input, init);
+
+  const headers = new Headers(init.headers || {});
+  headers.set('Authorization', `Bearer ${token}`);
+  headers.set('X-User-Id', localStorage.getItem(API_USER_ID_KEY) || 'local-user');
+  return originalFetch(input, { ...init, headers });
+};
+
+function AuthGate() {
+  const [state, setState] = React.useState({
+    loading: true,
+    config: null,
+    client: null,
+    session: null,
+    error: null,
+  });
+
+  React.useEffect(() => {
+    let unsubscribe = null;
+
+    async function boot() {
+      try {
+        const res = await originalFetch('/api/public-config');
+        const config = await res.json();
+        if (config.auth_mode !== 'supabase') {
+          setState({ loading: false, config, client: null, session: null, error: null });
+          return;
+        }
+        if (!window.supabase || !config.supabase_url || !config.supabase_publishable_key) {
+          setState({ loading: false, config, client: null, session: null, error: 'Login is not configured.' });
+          return;
+        }
+
+        const client = window.supabase.createClient(
+          config.supabase_url,
+          config.supabase_publishable_key
+        );
+        const { data } = await client.auth.getSession();
+        syncSession(data.session);
+        const sub = client.auth.onAuthStateChange((_event, session) => {
+          syncSession(session);
+          setState(prev => ({ ...prev, session }));
+        });
+        unsubscribe = sub.data.subscription.unsubscribe;
+        setState({ loading: false, config, client, session: data.session, error: null });
+      } catch (e) {
+        setState({ loading: false, config: null, client: null, session: null, error: 'Unable to load app config.' });
+      }
+    }
+
+    boot();
+    return () => { if (unsubscribe) unsubscribe(); };
+  }, []);
+
+  const syncSession = (session) => {
+    if (session?.access_token) {
+      localStorage.setItem(API_AUTH_TOKEN_KEY, session.access_token);
+      localStorage.setItem(API_USER_ID_KEY, session.user?.id || 'supabase-user');
+    } else {
+      localStorage.removeItem(API_AUTH_TOKEN_KEY);
+      localStorage.removeItem(API_USER_ID_KEY);
+    }
+  };
+
+  const signIn = async () => {
+    if (!state.client) return;
+    await state.client.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+  };
+
+  const signOut = async () => {
+    if (state.client) await state.client.auth.signOut();
+    syncSession(null);
+    setState(prev => ({ ...prev, session: null }));
+  };
+
+  if (state.loading) {
+    return <div className="app-container"><div className="empty-state"><h3>Loading WealthBrief</h3></div></div>;
+  }
+  if (state.error) {
+    return <div className="app-container"><div className="empty-state"><h3>{state.error}</h3></div></div>;
+  }
+  if (state.config?.auth_mode === 'supabase' && !state.session) {
+    return (
+      <div className="app-container">
+        <div className="empty-state">
+          <h3>WealthBrief</h3>
+          <p style={{ marginBottom: 18 }}>Sign in to track your portfolio.</p>
+          <button className="btn btn-primary" onClick={signIn}>Continue with Google</button>
+        </div>
+      </div>
+    );
+  }
+  return <App authUser={state.session?.user || null} onSignOut={state.client ? signOut : null} />;
+}
 
 function formatMoney(n) {
   if (n == null || isNaN(n)) return '$0.00';
@@ -1144,6 +1253,102 @@ function CashPanel({ onSave }) {
         </div>
       ))}
     </div>
+  );
+}
+
+function AddActivePositionForm({ onAdd }) {
+  const empty = {
+    symbol: '',
+    name: '',
+    broker: 'csv',
+    asset_type: 'stock',
+    quantity: '',
+    average_cost: '',
+    current_price: '',
+  };
+  const [form, setForm] = React.useState(empty);
+  const [saving, setSaving] = React.useState(false);
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.symbol || !form.quantity || !form.average_cost || !form.current_price) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/api/positions/upsert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: form.symbol.toUpperCase().trim(),
+          name: form.name.trim(),
+          broker: form.broker,
+          asset_type: form.asset_type,
+          quantity: parseFloat(form.quantity),
+          average_cost: parseFloat(form.average_cost),
+          current_price: parseFloat(form.current_price),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.detail || 'Position add failed');
+        return;
+      }
+      setForm(empty);
+      onAdd(data);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} style={{ padding: '14px 16px' }}>
+      <div className="form-grid-2">
+        <div className="form-row">
+          <label className="form-label">Symbol *</label>
+          <input className="form-input" placeholder="AAPL" value={form.symbol} onChange={e => set('symbol', e.target.value)} required />
+        </div>
+        <div className="form-row">
+          <label className="form-label">Broker *</label>
+          <select className="form-input" value={form.broker} onChange={e => set('broker', e.target.value)}>
+            <option value="csv">Manual</option>
+            <option value="robinhood">Robinhood</option>
+            <option value="etrade">E*Trade</option>
+          </select>
+        </div>
+      </div>
+      <div className="form-grid-2">
+        <div className="form-row">
+          <label className="form-label">Type *</label>
+          <select className="form-input" value={form.asset_type} onChange={e => set('asset_type', e.target.value)}>
+            <option value="stock">Stock</option>
+            <option value="etf">ETF</option>
+            <option value="option">Option</option>
+            <option value="crypto">Crypto</option>
+          </select>
+        </div>
+        <div className="form-row">
+          <label className="form-label">Name</label>
+          <input className="form-input" placeholder="Optional" value={form.name} onChange={e => set('name', e.target.value)} />
+        </div>
+      </div>
+      <div className="form-grid-2">
+        <div className="form-row">
+          <label className="form-label">Qty *</label>
+          <input className="form-input" type="number" min="0" step="any" placeholder="0" value={form.quantity} onChange={e => set('quantity', e.target.value)} required />
+        </div>
+        <div className="form-row">
+          <label className="form-label">Avg Cost *</label>
+          <input className="form-input" type="number" min="0" step="any" placeholder="0.00" value={form.average_cost} onChange={e => set('average_cost', e.target.value)} required />
+        </div>
+      </div>
+      <div className="form-row">
+        <label className="form-label">Current Price *</label>
+        <input className="form-input" type="number" min="0" step="any" placeholder="0.00" value={form.current_price} onChange={e => set('current_price', e.target.value)} required />
+      </div>
+      <button type="submit" className="btn btn-primary" style={{ width:'100%', marginTop:'4px' }} disabled={saving}>
+        {saving ? 'Saving...' : 'Add Active Position'}
+      </button>
+    </form>
   );
 }
 
@@ -2428,7 +2633,7 @@ function SignalsView({ portfolioSymbols = [] }) {
   );
 }
 
-function App() {
+function App({ authUser, onSignOut }) {
   const [portfolio, setPortfolio] = useState(null);
   const [closedPositions, setClosedPositions] = useState([]);
   const [taxLots, setTaxLots] = useState({});        // key: "SYMBOL-broker" → lot[]
@@ -2535,9 +2740,37 @@ function App() {
     fetchClosed();
   };
 
+  const handleAddActive = async (position) => {
+    await fetchPortfolio();
+    await fetchPriceHistory();
+    setActiveTab('active');
+    setToast({ message: `Added ${position.symbol}`, type: 'success' });
+  };
+
   const positions = portfolio?.positions || [];
   const hasData = positions.length > 0;
   const totalCash = positions.filter(p => p.asset_type === 'cash').reduce((s, p) => s + p.market_value, 0);
+
+  const pricesAsOf = (() => {
+    const ts = positions
+      .filter(p => p.asset_type !== 'cash' && p.updated_at)
+      .map(p => new Date(p.updated_at).getTime())
+      .filter(t => !isNaN(t));
+    if (!ts.length) return null;
+    const d = new Date(Math.max(...ts));
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMins = Math.round(diffMs / 60000);
+    const diffHrs = Math.round(diffMs / 3600000);
+    const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    const isToday = d.toDateString() === now.toDateString();
+    const age = diffMins < 2 ? 'just now'
+      : diffMins < 60 ? `${diffMins}m ago`
+      : diffHrs < 24 ? `${diffHrs}h ago`
+      : `${Math.round(diffMs / 86400000)}d ago`;
+    return `${isToday ? timeStr : dateStr + ' ' + timeStr} (${age})`;
+  })();
   const totalRealized = closedPositions.reduce((s, p) => s + p.realized_gain, 0);
   const currentYear = new Date().getFullYear().toString();
   const ytdRealized = closedPositions
@@ -2555,9 +2788,13 @@ function App() {
               ? `${positions.length} positions across ${Object.keys(portfolio.broker_breakdown || {}).length} broker(s)`
               : 'No positions loaded'
             }
+            {pricesAsOf && (
+              <span className="prices-as-of"> · prices as of {pricesAsOf}</span>
+            )}
           </div>
         </div>
         <div className="header-actions">
+          {authUser && <button className="btn" onClick={onSignOut}>Sign out</button>}
           <button className="btn" onClick={handleExport}>Export CSV</button>
           <button className="btn btn-primary" onClick={handleRefresh}>
             {loading ? '...' : 'Refresh'}
@@ -2636,7 +2873,7 @@ function App() {
             ) : (
               <div className="empty-state">
                 <h3>No positions yet</h3>
-                <p>Import a CSV from the panel on the right to get started.</p>
+                <p>Add a position manually or import a CSV from the panel on the right.</p>
               </div>
             )
           ) : activeTab === 'closed' ? (
@@ -2695,6 +2932,14 @@ function App() {
             <CashPanel onSave={fetchPortfolio} />
           </div>
 
+          {/* Add active position */}
+          <div className="panel">
+            <div className="panel-header">
+              <span className="panel-title">Add Active Position</span>
+            </div>
+            <AddActivePositionForm onAdd={handleAddActive} />
+          </div>
+
           {/* Log closed position */}
           <div className="panel">
             <div className="panel-header">
@@ -2726,7 +2971,7 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+ReactDOM.createRoot(document.getElementById('root')).render(<AuthGate />);
 </script>
 </body>
 </html>

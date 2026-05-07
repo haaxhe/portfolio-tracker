@@ -24,6 +24,17 @@ def _run_refresh():
     logger.info("Scheduled portfolio refresh triggered")
 
 
+def _run_youtube_monitor():
+    """Run the low-cost YouTube monitor on APScheduler's worker thread."""
+    from backend.youtube_monitor import run_monitor
+
+    mentions = run_monitor(
+        config_path=settings.YOUTUBE_MONITOR_CONFIG_PATH,
+        summarize=settings.YOUTUBE_MONITOR_LLM_ENABLED,
+    )
+    logger.info("Scheduled YouTube monitor found %d market mentions", len(mentions))
+
+
 def start_scheduler():
     if settings.REFRESH_INTERVAL_MINUTES > 0:
         scheduler.add_job(
@@ -37,6 +48,21 @@ def start_scheduler():
         logger.info(f"Scheduler started: refreshing every {settings.REFRESH_INTERVAL_MINUTES} min")
     else:
         logger.info("Scheduler disabled (REFRESH_INTERVAL_MINUTES=0)")
+
+    if settings.YOUTUBE_MONITOR_ENABLED:
+        scheduler.add_job(
+            _run_youtube_monitor,
+            "interval",
+            hours=settings.YOUTUBE_MONITOR_INTERVAL_HOURS,
+            id="youtube_monitor",
+            replace_existing=True,
+        )
+        if not scheduler.running:
+            scheduler.start()
+        logger.info(
+            "YouTube monitor scheduled every %s hours",
+            settings.YOUTUBE_MONITOR_INTERVAL_HOURS,
+        )
 
 
 def stop_scheduler():

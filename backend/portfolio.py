@@ -21,13 +21,19 @@ def get_price_history_cache() -> dict[str, dict]:
 
 async def connect_brokers() -> dict[str, bool]:
     """Attempt to connect all configured brokers."""
+    from backend.config import settings
+
+    if not settings.ENABLE_BROKER_CONNECTORS:
+        logger.info("Broker connectors disabled; using manual/CSV MVP mode")
+        return {"robinhood": False, "etrade": False}
+
     results = {}
     results["robinhood"] = await _robinhood.connect()
     results["etrade"] = await _etrade.connect()
     return results
 
 
-async def refresh_all() -> PortfolioSummary:
+async def refresh_all(user_id: str | None = None) -> PortfolioSummary:
     """Fetch latest positions from all connected brokers, update prices, save."""
     global _price_history
     from backend.brokers.yfinance_updater import fetch_prices_and_history
@@ -42,7 +48,7 @@ async def refresh_all() -> PortfolioSummary:
 
     # Merge in any DB positions not covered by live broker feeds
     live_symbols = {p.symbol for p in live_positions}
-    for p in db.load_positions():
+    for p in db.load_positions(user_id=user_id):
         if p.asset_type != "cash" and p.symbol not in live_symbols:
             live_positions.append(p)
 
@@ -51,18 +57,18 @@ async def refresh_all() -> PortfolioSummary:
         _price_history = history
 
     if live_positions:
-        db.save_positions(live_positions)
-        db.save_snapshot(live_positions)
+        db.save_positions(live_positions, user_id=user_id)
+        db.save_snapshot(live_positions, user_id=user_id)
 
-    return get_portfolio()
+    return get_portfolio(user_id=user_id)
 
 
-async def price_update_only() -> None:
+async def price_update_only(user_id: str | None = None) -> None:
     """Startup refresh: update prices for all DB positions and prime the history cache."""
     global _price_history
     from backend.brokers.yfinance_updater import fetch_prices_and_history
 
-    positions = [p for p in db.load_positions() if p.asset_type != "cash"]
+    positions = [p for p in db.load_positions(user_id=user_id) if p.asset_type != "cash"]
     if not positions:
         return
 
@@ -70,13 +76,13 @@ async def price_update_only() -> None:
     if history:
         _price_history = history
 
-    db.save_positions(positions)
+    db.save_positions(positions, user_id=user_id)
     logger.info(f"Startup: refreshed {len(positions)} prices, cached history for {len(history)} symbols")
 
 
-def get_portfolio() -> PortfolioSummary:
+def get_portfolio(user_id: str | None = None) -> PortfolioSummary:
     """Load latest positions from DB and return summary."""
-    positions = db.load_positions()
+    positions = db.load_positions(user_id=user_id)
     summary = PortfolioSummary(positions=positions)
     summary.compute_from_positions()
     return summary
