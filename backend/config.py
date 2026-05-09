@@ -24,6 +24,10 @@ def _getenv(name: str, default: str = "") -> str:
     return os.getenv(name) or str(_claude_env.get(name) or default)
 
 
+def _getbool(name: str, default: str = "false") -> bool:
+    return _getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
 class Settings:
     # Robinhood
     RH_USERNAME: str = _getenv("RH_USERNAME")
@@ -53,6 +57,7 @@ class Settings:
     DEFAULT_USER_ID: str = _getenv("DEFAULT_USER_ID", "local-user")
     AUTH_MODE: str = _getenv("AUTH_MODE", "local")  # local, token, or supabase
     API_TOKEN: str = _getenv("API_TOKEN")
+    TRUST_PROXY_USER_HEADER: bool = _getbool("TRUST_PROXY_USER_HEADER")
     SUPABASE_URL: str = _getenv("SUPABASE_URL")
     SUPABASE_PUBLISHABLE_KEY: str = (
         _getenv("SUPABASE_PUBLISHABLE_KEY")
@@ -63,11 +68,11 @@ class Settings:
         for origin in _getenv("CORS_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000").split(",")
         if origin.strip()
     ]
-    ENABLE_BROKER_CONNECTORS: bool = _getenv("ENABLE_BROKER_CONNECTORS", "false").lower() == "true"
-    YOUTUBE_MONITOR_ENABLED: bool = _getenv("YOUTUBE_MONITOR_ENABLED", "false").lower() == "true"
+    ENABLE_BROKER_CONNECTORS: bool = _getbool("ENABLE_BROKER_CONNECTORS")
+    YOUTUBE_MONITOR_ENABLED: bool = _getbool("YOUTUBE_MONITOR_ENABLED")
     YOUTUBE_MONITOR_CONFIG_PATH: str = _getenv("YOUTUBE_MONITOR_CONFIG_PATH", "config/youtube_sources.json")
     YOUTUBE_MONITOR_INTERVAL_HOURS: int = int(_getenv("YOUTUBE_MONITOR_INTERVAL_HOURS", "24"))
-    YOUTUBE_MONITOR_LLM_ENABLED: bool = _getenv("YOUTUBE_MONITOR_LLM_ENABLED", "false").lower() == "true"
+    YOUTUBE_MONITOR_LLM_ENABLED: bool = _getbool("YOUTUBE_MONITOR_LLM_ENABLED")
     YOUTUBE_MONITOR_SUMMARIZE_LIMIT: int = int(_getenv("YOUTUBE_MONITOR_SUMMARIZE_LIMIT", "3"))
     OPENAI_API_KEY: str = _getenv("OPENAI_API_KEY")
     OPENAI_MODEL: str = _getenv("OPENAI_MODEL", "gpt-5.2")
@@ -83,6 +88,35 @@ class Settings:
     @property
     def alpaca_configured(self) -> bool:
         return bool(self.ALPACA_API_KEY and self.ALPACA_SECRET_KEY and self.ALPACA_DATA_ENDPOINT)
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.strip().lower() in {"prod", "production"}
+
+    def validate_for_startup(self) -> None:
+        auth_mode = self.AUTH_MODE.strip().lower()
+        errors: list[str] = []
+
+        if auth_mode not in {"local", "token", "supabase"}:
+            errors.append("AUTH_MODE must be local, token, or supabase")
+
+        if "*" in self.CORS_ORIGINS:
+            errors.append("CORS_ORIGINS must not include '*' when credentials are enabled")
+
+        if self.is_production:
+            if auth_mode != "supabase":
+                errors.append("ENVIRONMENT=production requires AUTH_MODE=supabase")
+            if not self.DATABASE_URL:
+                errors.append("ENVIRONMENT=production requires DATABASE_URL")
+            if not self.APP_BASE_URL.startswith("https://"):
+                errors.append("ENVIRONMENT=production requires an HTTPS APP_BASE_URL")
+            if not self.SUPABASE_URL or not self.SUPABASE_PUBLISHABLE_KEY:
+                errors.append("ENVIRONMENT=production requires Supabase auth settings")
+            if any(not origin.startswith("https://") for origin in self.CORS_ORIGINS):
+                errors.append("ENVIRONMENT=production requires HTTPS CORS_ORIGINS")
+
+        if errors:
+            raise RuntimeError("Invalid security configuration: " + "; ".join(errors))
 
 
 settings = Settings()

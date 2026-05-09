@@ -1,8 +1,8 @@
 """Minimal auth boundary for the web MVP.
 
-Local mode keeps the existing single-user workflow working. Token mode is the
-first hosted step: put an auth proxy or frontend session in front of the API and
-send a stable user id with each request.
+Local mode keeps the existing single-user workflow working. Token mode is a
+single-user private bridge unless the service is behind a trusted proxy that
+sets the owner identity.
 """
 from __future__ import annotations
 
@@ -29,7 +29,10 @@ def _clean_user_id(value: str) -> str:
 
 def get_current_user(
     authorization: str | None = Header(default=None),
-    x_user_id: str | None = Header(default=None),
+    x_authenticated_user_id: str | None = Header(
+        default=None,
+        alias="X-Authenticated-User-Id",
+    ),
 ) -> CurrentUser:
     """Resolve the request owner.
 
@@ -37,10 +40,12 @@ def get_current_user(
     private-beta bridge. AUTH_MODE=supabase verifies the bearer token with
     Supabase Auth and uses the Supabase user id as the data owner.
     """
-    if settings.AUTH_MODE == "local":
+    auth_mode = settings.AUTH_MODE.strip().lower()
+
+    if auth_mode == "local":
         return CurrentUser(user_id=_clean_user_id(settings.DEFAULT_USER_ID))
 
-    if settings.AUTH_MODE == "token":
+    if auth_mode == "token":
         if not settings.API_TOKEN:
             raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "API_TOKEN is required")
 
@@ -48,9 +53,12 @@ def get_current_user(
         if authorization != expected:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or missing bearer token")
 
-        return CurrentUser(user_id=_clean_user_id(x_user_id or settings.DEFAULT_USER_ID))
+        if settings.TRUST_PROXY_USER_HEADER:
+            return CurrentUser(user_id=_clean_user_id(x_authenticated_user_id or ""))
 
-    if settings.AUTH_MODE == "supabase":
+        return CurrentUser(user_id=_clean_user_id(settings.DEFAULT_USER_ID))
+
+    if auth_mode == "supabase":
         return _get_supabase_user(authorization)
 
     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Unsupported AUTH_MODE")

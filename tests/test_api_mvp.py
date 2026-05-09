@@ -17,12 +17,19 @@ class ApiMvpTest(unittest.TestCase):
         self.original_auth_mode = settings.AUTH_MODE
         self.original_token = settings.API_TOKEN
         self.original_default_user = settings.DEFAULT_USER_ID
+        self.original_trust_proxy_user_header = settings.TRUST_PROXY_USER_HEADER
+        self.original_environment = settings.ENVIRONMENT
+        self.original_database_url = settings.DATABASE_URL
+        self.original_app_base_url = settings.APP_BASE_URL
+        self.original_cors_origins = list(settings.CORS_ORIGINS)
         self.original_supabase_url = settings.SUPABASE_URL
         self.original_supabase_key = settings.SUPABASE_PUBLISHABLE_KEY
         settings.DB_PATH = str(Path(self.tmpdir.name) / "portfolio.db")
         settings.AUTH_MODE = "token"
         settings.API_TOKEN = "test-token"
         settings.DEFAULT_USER_ID = "fallback-user"
+        settings.TRUST_PROXY_USER_HEADER = False
+        settings.ENVIRONMENT = "local"
         db.init_db()
         db.init_portfolio_history_table()
         self.client = TestClient(app)
@@ -32,21 +39,30 @@ class ApiMvpTest(unittest.TestCase):
         settings.AUTH_MODE = self.original_auth_mode
         settings.API_TOKEN = self.original_token
         settings.DEFAULT_USER_ID = self.original_default_user
+        settings.TRUST_PROXY_USER_HEADER = self.original_trust_proxy_user_header
+        settings.ENVIRONMENT = self.original_environment
+        settings.DATABASE_URL = self.original_database_url
+        settings.APP_BASE_URL = self.original_app_base_url
+        settings.CORS_ORIGINS = self.original_cors_origins
         settings.SUPABASE_URL = self.original_supabase_url
         settings.SUPABASE_PUBLISHABLE_KEY = self.original_supabase_key
         self.tmpdir.cleanup()
 
-    def _headers(self, user_id: str) -> dict[str, str]:
-        return {
+    def _headers(self, user_id: str | None = None, trusted_user_id: str | None = None) -> dict[str, str]:
+        headers = {
             "Authorization": "Bearer test-token",
-            "X-User-Id": user_id,
         }
+        if user_id:
+            headers["X-User-Id"] = user_id
+        if trusted_user_id:
+            headers["X-Authenticated-User-Id"] = trusted_user_id
+        return headers
 
     def test_api_requires_token_in_token_mode(self) -> None:
         response = self.client.get("/api/portfolio")
         self.assertEqual(response.status_code, 401)
 
-    def test_portfolio_routes_are_scoped_by_user(self) -> None:
+    def test_token_mode_ignores_browser_user_id(self) -> None:
         payload = {
             "symbol": "AAPL",
             "broker": "csv",
@@ -64,6 +80,30 @@ class ApiMvpTest(unittest.TestCase):
 
         u1 = self.client.get("/api/portfolio", headers=self._headers("u1")).json()
         u2 = self.client.get("/api/portfolio", headers=self._headers("u2")).json()
+
+        self.assertEqual([p["symbol"] for p in u1["positions"]], ["AAPL"])
+        self.assertEqual([p["symbol"] for p in u2["positions"]], ["AAPL"])
+        self.assertEqual([p.symbol for p in db.load_positions(user_id="fallback-user")], ["AAPL"])
+
+    def test_trusted_proxy_user_header_scopes_token_mode_when_enabled(self) -> None:
+        settings.TRUST_PROXY_USER_HEADER = True
+
+        created = self.client.post(
+            "/api/positions/upsert",
+            json={
+                "symbol": "AAPL",
+                "broker": "csv",
+                "quantity": 2,
+                "average_cost": 10,
+                "current_price": 15,
+                "asset_type": "stock",
+            },
+            headers=self._headers(user_id="ignored-browser-user", trusted_user_id="u1"),
+        )
+        self.assertEqual(created.status_code, 200)
+
+        u1 = self.client.get("/api/portfolio", headers=self._headers(trusted_user_id="u1")).json()
+        u2 = self.client.get("/api/portfolio", headers=self._headers(trusted_user_id="u2")).json()
 
         self.assertEqual([p["symbol"] for p in u1["positions"]], ["AAPL"])
         self.assertEqual(u2["positions"], [])
@@ -97,6 +137,46 @@ class ApiMvpTest(unittest.TestCase):
             ["MSFT"],
         )
         get.assert_called_once()
+
+    def test_production_startup_validation_fails_closed(self) -> None:
+        settings.ENVIRONMENT = "production"
+        settings.AUTH_MODE = "local"
+        settings.DATABASE_URL = ""
+        settings.APP_BASE_URL = "http://example.com"
+        settings.CORS_ORIGINS = ["http://example.com"]
+
+        with self.assertRaises(RuntimeError):
+            settings.validate_for_startup()
+
+    def test_production_startup_validation_accepts_supabase_https(self) -> None:
+        settings.ENVIRONMENT = "production"
+        settings.AUTH_MODE = "supabase"
+        settings.DATABASE_URL = "postgresql://user:pass@db.example.com/postgres"
+        settings.APP_BASE_URL = "https://getwealthbrief.com"
+        settings.CORS_ORIGINS = ["https://getwealthbrief.com"]
+        settings.SUPABASE_URL = "https://project.supabase.co"
+        settings.SUPABASE_PUBLISHABLE_KEY = "publishable-key"
+
+        settings.validate_for_startup()
+
+    def test_anonymous_api_surface_is_limited(self) -> None:
+        allowed = {"/api/public-config", "/api/price-history"}
+        routes = [
+            "/api/public-config",
+            "/api/portfolio",
+            "/api/export/csv",
+            "/api/signals",
+            "/api/youtube-monitor/mentions",
+            "/api/price-history",
+        ]
+
+        for path in routes:
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                if path in allowed:
+                    self.assertNotEqual(response.status_code, 401)
+                else:
+                    self.assertEqual(response.status_code, 401)
 
 
 if __name__ == "__main__":

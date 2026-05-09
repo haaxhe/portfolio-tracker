@@ -49,6 +49,12 @@ ENABLE_BROKER_CONNECTORS=false
 REFRESH_INTERVAL_MINUTES=0
 ```
 
+Render must run the frontend build before startup:
+
+```bash
+pip install -r requirements.txt && npm ci && npm run build
+```
+
 Optional market data environment:
 
 ```bash
@@ -75,6 +81,8 @@ After deploy:
 - Add one manual position
 - Refresh `/api/portfolio` while signed in
 - Sign out and confirm protected API requests return `401`
+- Confirm response headers include `Content-Security-Policy`,
+  `X-Frame-Options: DENY`, and `Strict-Transport-Security`
 
 ## 5. Before Public Beta
 

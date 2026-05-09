@@ -39,11 +39,12 @@ is multi-user, secure, and trusted.
 
 `AUTH_MODE=token`
 
-- First hosted-MVP mode.
+- Local/private single-user bridge.
 - Requires `Authorization: Bearer <API_TOKEN>`.
-- Uses `X-User-Id` when supplied, otherwise falls back to `DEFAULT_USER_ID`.
-- This is suitable behind a trusted auth gateway or temporary private beta, not
-  a final consumer auth system.
+- Ignores browser-supplied `X-User-Id` and falls back to `DEFAULT_USER_ID`.
+- Can use `X-Authenticated-User-Id` only when `TRUST_PROXY_USER_HEADER=true`
+  and the app is behind a trusted proxy that strips client identity headers.
+- Production startup validation blocks token mode.
 
 `AUTH_MODE=supabase`
 
@@ -58,6 +59,7 @@ Before public launch:
 
 - Use Supabase auth mode for public users.
 - Use Supabase Postgres through `DATABASE_URL`.
+- Serve the bundled Vite frontend build in production.
 - Add formal migrations once the schema stabilizes.
 - Put all user-owned queries behind owner-scoped repositories or ORM models.
 - Store CSV import files in object storage.
@@ -82,7 +84,8 @@ Tests in `tests/test_db_tenancy.py` cover the current isolation behavior.
 ## Known Limitations
 
 - SQLite is still the local development store.
-- The frontend is still a single HTML/React file.
+- Local development can still fall back to the legacy single-file dashboard when
+  `frontend/dist` has not been built.
 - Token auth is a bridge, not a production identity system.
 - Supabase auth currently verifies via `/auth/v1/user` on each protected request;
   caching or local JWT verification can be added later if needed.

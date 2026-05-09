@@ -11,27 +11,43 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, UploadFile, File, Query, HTTPException
+from fastapi import Depends, FastAPI, UploadFile, File, Query, HTTPException, Request
 from pydantic import BaseModel as PydanticBaseModel
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from backend.config import settings
 from backend import db
 from backend.auth import CurrentUser, get_current_user
 from backend.models import BrokerName, ClosedPosition, Position, TaxLot
 from backend.signals.models import SignalType
-from backend.brokers.csv_import import CSVImporter
+from backend.brokers.csv_import import ALLOWED_ASSET_TYPES, CSVImporter, MAX_NAME_LENGTH, SYMBOL_RE
 from backend.portfolio import get_portfolio, refresh_all, connect_brokers, price_update_only
 from backend.scheduler import start_scheduler, stop_scheduler, set_event_loop
+from backend.security import apply_security_headers, enforce_rate_limit
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+DIST_DIR = FRONTEND_DIR / "dist"
+MAX_CSV_UPLOAD_BYTES = 2 * 1024 * 1024
+MAX_CSV_ROWS = 2_000
+MAX_SIGNAL_SCAN_SYMBOLS = 50
+CSV_CONTENT_TYPES = {
+    "text/csv",
+    "text/plain",
+    "application/csv",
+    "application/vnd.ms-excel",
+    "application/octet-stream",
+}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    settings.validate_for_startup()
     db.init_db()
     db.init_portfolio_history_table()
     set_event_loop(asyncio.get_event_loop())
@@ -48,6 +64,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Portfolio Tracker", version="0.1.0", lifespan=lifespan)
+app.mount("/assets", StaticFiles(directory=DIST_DIR / "assets", check_dir=False), name="assets")
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,6 +73,43 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    apply_security_headers(response.headers)
+    return response
+
+
+def _csv_export_cell(value: object) -> str:
+    text = str(value)
+    return f"'{text}" if text.startswith(("=", "+", "-", "@")) else text
+
+
+async def _read_csv_upload(file: UploadFile) -> str:
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if content_type and content_type not in CSV_CONTENT_TYPES:
+        raise HTTPException(400, "CSV upload must use a text/csv-compatible content type")
+    if file.filename and not file.filename.lower().endswith(".csv"):
+        raise HTTPException(400, "CSV upload filename must end with .csv")
+
+    raw = await file.read(MAX_CSV_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_CSV_UPLOAD_BYTES:
+        raise HTTPException(413, "CSV upload is too large")
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(400, "CSV upload must be UTF-8 text") from exc
+
+
+def _validate_signal_symbols(symbols: list[str]) -> list[str]:
+    if len(symbols) > MAX_SIGNAL_SCAN_SYMBOLS:
+        raise HTTPException(400, f"Cannot scan more than {MAX_SIGNAL_SCAN_SYMBOLS} symbols at once")
+    cleaned = [s.strip().upper() for s in symbols if s and s.strip()]
+    if not cleaned:
+        raise HTTPException(400, "At least one symbol is required")
+    return cleaned
 
 
 # ─── API Routes ───────────────────────────────────────────────
@@ -95,14 +149,16 @@ def api_positions_by_broker(
 
 @app.post("/api/import/csv")
 async def api_import_csv(
+    request: Request,
     file: UploadFile = File(...),
     broker: BrokerName = Query(BrokerName.CSV, description="Label: robinhood, etrade, or csv"),
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Import positions from a CSV file."""
-    content = (await file.read()).decode("utf-8")
+    enforce_rate_limit(request, current_user.user_id, "csv_import", limit=5, window_seconds=3600)
+    content = await _read_csv_upload(file)
     try:
-        positions = CSVImporter.parse(content, broker_label=broker)
+        positions = CSVImporter.parse(content, broker_label=broker, max_rows=MAX_CSV_ROWS)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -270,8 +326,12 @@ def api_delete_closed_position(
 
 
 @app.post("/api/refresh")
-async def api_refresh(current_user: CurrentUser = Depends(get_current_user)):
+async def api_refresh(
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Force refresh from all connected brokers."""
+    enforce_rate_limit(request, current_user.user_id, "portfolio_refresh", limit=10, window_seconds=900)
     summary = await refresh_all(user_id=current_user.user_id)
     return {
         "total_value": summary.total_value,
@@ -378,17 +438,23 @@ def api_upsert_position(
     if pos.current_price < 0:
         raise HTTPException(400, "current_price must be >= 0")
 
+    symbol = pos.symbol.upper().strip()
+    if not SYMBOL_RE.fullmatch(symbol):
+        raise HTTPException(400, "symbol is invalid")
+    name = pos.name.strip() or symbol
+    if len(name) > MAX_NAME_LENGTH:
+        raise HTTPException(400, "name is too long")
+
     asset_type = pos.asset_type.lower().strip()
-    allowed_asset_types = {"stock", "etf", "option", "crypto"}
-    if asset_type not in allowed_asset_types:
+    if asset_type not in ALLOWED_ASSET_TYPES - {"cash"}:
         raise HTTPException(
             400,
-            f"asset_type must be one of: {', '.join(sorted(allowed_asset_types))}",
+            f"asset_type must be one of: {', '.join(sorted(ALLOWED_ASSET_TYPES - {'cash'}))}",
         )
 
     position = Position(
-        symbol=pos.symbol.upper().strip(),
-        name=pos.name.strip() or pos.symbol.upper().strip(),
+        symbol=symbol,
+        name=name,
         broker=pos.broker,
         quantity=pos.quantity,
         average_cost=pos.average_cost,
@@ -410,8 +476,12 @@ def api_delete_broker_positions(
 
 
 @app.get("/api/export/csv")
-def api_export_csv(current_user: CurrentUser = Depends(get_current_user)):
+def api_export_csv(
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Export all positions as CSV."""
+    enforce_rate_limit(request, current_user.user_id, "csv_export", limit=30, window_seconds=3600)
     positions = db.load_positions(user_id=current_user.user_id)
     output = io.StringIO()
     writer = csv.writer(output)
@@ -421,10 +491,10 @@ def api_export_csv(current_user: CurrentUser = Depends(get_current_user)):
     ])
     for p in positions:
         writer.writerow([
-            p.symbol, p.name, p.quantity, f"{p.average_cost:.2f}",
+            _csv_export_cell(p.symbol), _csv_export_cell(p.name), p.quantity, f"{p.average_cost:.2f}",
             f"{p.current_price:.2f}", f"{p.market_value:.2f}",
             f"{p.unrealized_gain:.2f}", f"{p.unrealized_gain_pct:.2f}%",
-            p.broker.value, p.asset_type, p.updated_at.isoformat(),
+            _csv_export_cell(p.broker.value), _csv_export_cell(p.asset_type), p.updated_at.isoformat(),
         ])
     output.seek(0)
     return StreamingResponse(
@@ -460,15 +530,17 @@ def api_get_signals(
 
 @app.post("/api/signals/scan")
 async def api_scan_signals(
+    request: Request,
     body: ScanRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Scan specific symbols for signals."""
+    enforce_rate_limit(request, current_user.user_id, "signals_scan", limit=20, window_seconds=3600)
     from backend.signals import scan_symbols
     sources = None
     if body.sources:
         sources = [SignalType(s) for s in body.sources]
-    symbols = [s.upper() for s in body.symbols]
+    symbols = _validate_signal_symbols(body.symbols)
     results = scan_symbols(symbols, sources=sources, user_id=current_user.user_id)
 
     # Persist to DB
@@ -491,15 +563,20 @@ async def api_scan_signals(
 
 
 @app.post("/api/signals/scan-portfolio")
-async def api_scan_portfolio_signals(current_user: CurrentUser = Depends(get_current_user)):
+async def api_scan_portfolio_signals(
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Scan all portfolio symbols for signals."""
+    enforce_rate_limit(request, current_user.user_id, "signals_scan_portfolio", limit=10, window_seconds=3600)
     positions = db.load_positions(user_id=current_user.user_id)
-    symbols = list(set(
+    raw_symbols = list(set(
         p.symbol for p in positions
         if p.asset_type != "cash" and p.symbol != "CASH"
     ))
-    if not symbols:
+    if not raw_symbols:
         return {"error": "No positions to scan"}
+    symbols = _validate_signal_symbols(raw_symbols)
 
     from backend.signals import scan_symbols
     results = scan_symbols(symbols, user_id=current_user.user_id)
@@ -539,10 +616,14 @@ def api_signal_history(
 
 @app.post("/api/youtube-monitor/scan")
 def api_scan_youtube_monitor(
+    request: Request,
     summarize: bool = Query(False, description="Run optional OpenAI summarization for matched videos."),
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Scan configured YouTube channels for market commentary."""
+    enforce_rate_limit(request, current_user.user_id, "youtube_monitor_scan", limit=10, window_seconds=3600)
+    if summarize:
+        enforce_rate_limit(request, current_user.user_id, "youtube_monitor_summarize", limit=3, window_seconds=3600)
     from backend.youtube_monitor import run_monitor
 
     mentions = run_monitor(user_id=current_user.user_id, summarize=summarize)
@@ -583,11 +664,18 @@ def api_youtube_monitor_mentions(
 
 @app.get("/", response_class=HTMLResponse)
 def serve_dashboard():
-    """Serve the single-file React dashboard."""
-    dashboard_path = Path(__file__).parent.parent / "frontend" / "dashboard.html"
-    if dashboard_path.exists():
-        return HTMLResponse(dashboard_path.read_text())
-    return HTMLResponse("<h1>Dashboard not found</h1><p>Place dashboard.html in frontend/</p>")
+    """Serve the React dashboard."""
+    dist_dashboard = DIST_DIR / "index.html"
+    if dist_dashboard.exists():
+        return HTMLResponse(dist_dashboard.read_text())
+
+    if settings.is_production:
+        raise HTTPException(503, "Frontend build is missing")
+
+    local_fallback = FRONTEND_DIR / "dashboard.html"
+    if local_fallback.exists():
+        return HTMLResponse(local_fallback.read_text())
+    return HTMLResponse("<h1>Dashboard not found</h1><p>Build frontend assets first.</p>", status_code=503)
 
 
 # ─── Run ───────────────────────────────────────────────────────

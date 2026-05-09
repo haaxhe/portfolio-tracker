@@ -26,7 +26,10 @@ portfolio-tracker/
 │   ├── scheduler.py         # Periodic refresh (APScheduler)
 │   └── db.py                # SQLite persistence
 ├── frontend/
-│   └── dashboard.html        # Single-file React dashboard
+│   ├── index.html            # Vite app shell
+│   ├── src/                  # React dashboard source
+│   └── dashboard.html        # Local legacy fallback
+├── package.json
 ├── requirements.txt
 ├── docs/
 │   └── MVP_ARCHITECTURE.md
@@ -43,15 +46,19 @@ source venv/bin/activate  # or venv\Scripts\activate on Windows
 
 # 2. Install deps
 pip install -r requirements.txt
+npm install
 
 # 3. Copy env config
 cp .env.example .env
 # For local MVP mode, broker credentials are optional.
 
-# 4. Run (starts backend + serves dashboard)
+# 4. Build frontend assets
+npm run build
+
+# 5. Run (starts backend + serves dashboard)
 python -m backend.main
 
-# 5. Open http://localhost:8000
+# 6. Open http://localhost:8000
 ```
 
 ## MVP Auth Modes
@@ -64,7 +71,8 @@ DEFAULT_USER_ID=local-user
 ENABLE_BROKER_CONNECTORS=false
 ```
 
-For a private hosted MVP, use token mode behind HTTPS:
+For local or private single-user testing, token mode can protect the default
+user with one bearer token:
 
 ```bash
 AUTH_MODE=token
@@ -76,10 +84,17 @@ Requests in token mode must send:
 
 ```http
 Authorization: Bearer <API_TOKEN>
-X-User-Id: <stable-user-id>
 ```
 
-This is a bridge for private beta, not the final consumer auth system.
+Browser-supplied `X-User-Id` is ignored. If token mode is behind a trusted auth
+proxy that strips client identity headers and injects its own identity, set
+`TRUST_PROXY_USER_HEADER=true` and send:
+
+```http
+X-Authenticated-User-Id: <stable-user-id>
+```
+
+Token mode is blocked by production startup validation.
 
 Production Google login uses Supabase:
 
@@ -92,12 +107,12 @@ DATABASE_URL=<supabase-postgres-connection-string>
 CORS_ORIGINS=https://getwealthbrief.com,https://www.getwealthbrief.com
 ```
 
-The current single-file dashboard will add these headers automatically when the
-browser has:
+The bundled dashboard attaches Supabase bearer tokens only to same-origin API
+requests. For private token-mode testing, a local browser token can still be set
+manually:
 
 ```js
 localStorage.setItem('portfolio_tracker_api_token', '<API_TOKEN>');
-localStorage.setItem('portfolio_tracker_user_id', '<stable-user-id>');
 ```
 
 ## Broker Setup
