@@ -447,14 +447,14 @@ function SparklineInner({ values, width, height, color, hover, showZeroLine = fa
     <svg width={width} height={height} style={{display:'block', overflow:'visible'}}>
       {showZeroLine && min < 0 && max > 0 && (
         <line x1="0" x2={width} y1={toY(0).toFixed(1)} y2={toY(0).toFixed(1)}
-          stroke="rgba(255,255,255,0.12)" strokeWidth="1" strokeDasharray="2,2" />
+          stroke="rgba(80,100,92,0.18)" strokeWidth="1" strokeDasharray="2,2" />
       )}
       <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5"
         strokeLinejoin="round" strokeLinecap="round" />
       {hx != null && (
         <>
           <line x1={hx.toFixed(1)} x2={hx.toFixed(1)} y1="0" y2={height}
-            stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
+            stroke="rgba(47,111,159,0.26)" strokeWidth="1" />
           <circle cx={hx.toFixed(1)} cy={hy.toFixed(1)} r="2.5"
             fill={color} stroke="var(--bg-card)" strokeWidth="1.5" />
         </>
@@ -626,7 +626,7 @@ function OverallTrend30D({ positions, priceHistory, dateRange, onRangeChange }) 
         onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
         {/* zero line */}
         <line x1={pad.l} x2={VW - pad.r} y1={zeroY.toFixed(1)} y2={zeroY.toFixed(1)}
-          stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+          stroke="rgba(80,100,92,0.14)" strokeWidth="1" />
         {/* area fill */}
         <path d={areaD} fill={fillColor} />
         {/* line */}
@@ -636,7 +636,7 @@ function OverallTrend30D({ positions, priceHistory, dateRange, onRangeChange }) 
         {hover && (
           <>
             <line x1={hx.toFixed(1)} x2={hx.toFixed(1)} y1={pad.t} y2={H - pad.b}
-              stroke="rgba(255,255,255,0.18)" strokeWidth="1" strokeDasharray="3,3" />
+              stroke="rgba(80,100,92,0.2)" strokeWidth="1" strokeDasharray="3,3" />
             <circle cx={hx.toFixed(1)} cy={hy.toFixed(1)} r="4"
               fill={lineColor} stroke="var(--bg-card)" strokeWidth="2" />
           </>
@@ -801,7 +801,7 @@ function PositionsTable({ positions, taxLots, selectedKey, onSelectPosition, pri
 }
 
 function BrokerBreakdown({ breakdown, total }) {
-  const colors = { robinhood: '#34d399', etrade: '#60a5fa', csv: '#fbbf24' };
+  const colors = { robinhood: '#0f8a5f', etrade: '#2f6f9f', csv: '#b98217' };
   return (
     <div>
       {Object.entries(breakdown).map(([broker, value]) => (
@@ -893,7 +893,7 @@ function CashPanel({ onSave }) {
   return (
     <div style={{ padding: '4px 0' }}>
       {brokers.map(broker => (
-        <div key={broker} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderBottom: '1px solid rgba(30,42,58,0.4)' }}>
+        <div key={broker} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderBottom: '1px solid rgba(153,174,164,0.32)' }}>
           <span className={`broker-tag broker-${broker}`} style={{ minWidth: '72px' }}>{broker}</span>
           <input
             type="number"
@@ -1287,11 +1287,11 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
                 const isEditing = editingId === lot.id;
                 const isSelling = sellingId === lot.id;
                 const cellTd = { fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '7px 10px' };
-                const inlineInput = { fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '3px 5px', width: '100%', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '3px', color: 'var(--text-primary)' };
+                const inlineInput = { fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '3px 5px', width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: '3px', color: 'var(--text-primary)' };
                 const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '12px', padding: '0 3px' };
                 return (
                   <React.Fragment key={lot.id}>
-                    <tr style={{ borderBottom: (isEditing || isSelling) ? 'none' : '1px solid rgba(30,42,58,0.4)' }}>
+                    <tr style={{ borderBottom: (isEditing || isSelling) ? 'none' : '1px solid rgba(153,174,164,0.32)' }}>
                       {isEditing ? (
                         <>
                           <td style={cellTd}>
@@ -1328,7 +1328,7 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
                       )}
                     </tr>
                     {isSelling && (
-                      <tr style={{ borderBottom: '1px solid rgba(30,42,58,0.4)', background: 'rgba(30,42,58,0.25)' }}>
+                      <tr style={{ borderBottom: '1px solid rgba(153,174,164,0.32)', background: 'rgba(15,138,95,0.045)' }}>
                         <td colSpan={5} style={{ padding: '10px 12px' }}>
                           <div style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
                             Sell from lot · acquired {lot.acquired_at} · {lot.quantity} avail
@@ -1669,7 +1669,7 @@ function PnLTimeline({ closedPositions }) {
                   const m = yearMap[yr].months[ym];
                   const monthIdx = parseInt(ym.slice(5, 7), 10) - 1;
                   return (
-                    <tr key={ym} style={{ background: 'rgba(255,255,255,0.015)' }}>
+                    <tr key={ym} style={{ background: 'rgba(15,138,95,0.03)' }}>
                       <td style={{ paddingLeft: '32px', color: 'var(--text-secondary)', fontSize: '12px' }}>
                         {MONTHS[monthIdx]} {yr}
                       </td>
@@ -1682,7 +1682,7 @@ function PnLTimeline({ closedPositions }) {
                 })}
               </React.Fragment>
             ))}
-            <tr style={{ borderTop: '2px solid var(--border-accent)', background: 'rgba(255,255,255,0.02)' }}>
+            <tr style={{ borderTop: '2px solid var(--border-accent)', background: 'rgba(47,111,159,0.045)' }}>
               <td style={{ fontWeight: 700 }}>All Time</td>
               <td style={{ fontWeight: 600, color: 'var(--text-muted)' }}>{closedPositions.length}</td>
               <td style={{ fontWeight: 600, color: 'var(--accent-green)' }}>{formatMoney(allGains)}</td>
@@ -1990,38 +1990,38 @@ function PortfolioHistoryChart({ currentValue, historySeed = null, snapshotsSeed
         <svg viewBox={`0 0 ${W} ${H}`} className="hist-chart" style={{ height: '260px' }}>
           <defs>
             <linearGradient id="portGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.18" />
-              <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.01" />
+              <stop offset="0%" stopColor="#2f6f9f" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="#2f6f9f" stopOpacity="0.01" />
             </linearGradient>
           </defs>
 
           {/* Horizontal grid */}
           {yTicks.map((v, i) => (
             <line key={i} x1={PAD.left} y1={sy(v).toFixed(1)} x2={W-PAD.right} y2={sy(v).toFixed(1)}
-              stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
+              stroke="rgba(80,100,92,0.12)" strokeWidth="1" />
           ))}
 
           {/* Year markers */}
           {xLabels.map(({ yr, x }) => (
             <g key={yr}>
               <line x1={x.toFixed(1)} y1={PAD.top} x2={x.toFixed(1)} y2={H-PAD.bottom}
-                stroke="rgba(255,255,255,0.06)" strokeWidth="1" strokeDasharray="3,3" />
+                stroke="rgba(80,100,92,0.16)" strokeWidth="1" strokeDasharray="3,3" />
               <text x={x.toFixed(1)} y={H-PAD.bottom+15} textAnchor="middle"
-                fill="rgba(100,120,140,0.8)" fontFamily="JetBrains Mono,monospace" fontSize="10">{yr}</text>
+                fill="rgba(80,100,92,0.82)" fontFamily="JetBrains Mono,monospace" fontSize="10">{yr}</text>
             </g>
           ))}
 
           {/* Y-axis labels */}
           {yTicks.map((v, i) => (
             <text key={i} x={PAD.left-6} y={(sy(v)+4).toFixed(1)} textAnchor="end"
-              fill="rgba(100,120,140,0.8)" fontFamily="JetBrains Mono,monospace" fontSize="10">
+              fill="rgba(80,100,92,0.82)" fontFamily="JetBrains Mono,monospace" fontSize="10">
               {v >= 1e6 ? `$${(v/1e6).toFixed(1)}M` : `$${Math.round(v/1000)}K`}
             </text>
           ))}
 
           {/* S&P 500 reference line */}
           {sp500Line.length > 1 && (
-            <polyline points={spPts} fill="none" stroke="rgba(251,191,36,0.55)" strokeWidth="1.5" strokeDasharray="5,3" />
+            <polyline points={spPts} fill="none" stroke="rgba(185,130,23,0.66)" strokeWidth="1.5" strokeDasharray="5,3" />
           )}
 
           {/* Portfolio fill area */}
@@ -2034,13 +2034,13 @@ function PortfolioHistoryChart({ currentValue, historySeed = null, snapshotsSeed
 
           {/* Portfolio line */}
           {combined.length > 1 && (
-            <polyline points={portPts} fill="none" stroke="#60a5fa" strokeWidth="2.2" strokeLinejoin="round" />
+            <polyline points={portPts} fill="none" stroke="#2f6f9f" strokeWidth="2.2" strokeLinejoin="round" />
           )}
 
           {/* History entry dots */}
           {annotations.map((a, i) => (
             <circle key={i} cx={a.x.toFixed(1)} cy={a.y.toFixed(1)} r="4"
-              fill="var(--bg-card)" stroke="#60a5fa" strokeWidth="2" />
+              fill="var(--bg-card)" stroke="#2f6f9f" strokeWidth="2" />
           ))}
 
           {/* Live dot with pulse ring */}
@@ -2048,18 +2048,18 @@ function PortfolioHistoryChart({ currentValue, historySeed = null, snapshotsSeed
             const lx = sx(ts(lastPt.date)), ly = sy(lastPt.value);
             return (
               <g>
-                <circle cx={lx.toFixed(1)} cy={ly.toFixed(1)} r="9" fill="none" stroke="#60a5fa" strokeWidth="1" opacity="0.28" />
-                <circle cx={lx.toFixed(1)} cy={ly.toFixed(1)} r="5" fill="#60a5fa" />
+                <circle cx={lx.toFixed(1)} cy={ly.toFixed(1)} r="9" fill="none" stroke="#2f6f9f" strokeWidth="1" opacity="0.28" />
+                <circle cx={lx.toFixed(1)} cy={ly.toFixed(1)} r="5" fill="#2f6f9f" />
               </g>
             );
           })()}
 
           {/* Legend */}
           <g transform={`translate(${PAD.left+8},${PAD.top+7})`}>
-            <line x1="0" y1="6" x2="18" y2="6" stroke="#60a5fa" strokeWidth="2.2" />
-            <text x="22" y="10" fill="rgba(140,160,180,0.9)" fontFamily="JetBrains Mono,monospace" fontSize="10">Portfolio</text>
-            <line x1="84" y1="6" x2="102" y2="6" stroke="rgba(251,191,36,0.7)" strokeWidth="1.5" strokeDasharray="5,3" />
-            <text x="106" y="10" fill="rgba(140,160,180,0.9)" fontFamily="JetBrains Mono,monospace" fontSize="10">S&P 500 (est.)</text>
+            <line x1="0" y1="6" x2="18" y2="6" stroke="#2f6f9f" strokeWidth="2.2" />
+            <text x="22" y="10" fill="rgba(80,100,92,0.9)" fontFamily="JetBrains Mono,monospace" fontSize="10">Portfolio</text>
+            <line x1="84" y1="6" x2="102" y2="6" stroke="rgba(185,130,23,0.76)" strokeWidth="1.5" strokeDasharray="5,3" />
+            <text x="106" y="10" fill="rgba(80,100,92,0.9)" fontFamily="JetBrains Mono,monospace" fontSize="10">S&P 500 (est.)</text>
           </g>
         </svg>
       )}
@@ -2132,7 +2132,7 @@ function dirColor(d) {
   return d === 'bullish' ? 'var(--accent-green)' : d === 'bearish' ? 'var(--accent-red)' : 'var(--text-secondary)';
 }
 function dirBg(d) {
-  return d === 'bullish' ? 'rgba(52,211,153,0.12)' : d === 'bearish' ? 'rgba(248,113,113,0.12)' : 'rgba(100,120,140,0.08)';
+  return d === 'bullish' ? 'rgba(15,138,95,0.12)' : d === 'bearish' ? 'rgba(194,65,59,0.12)' : 'rgba(80,100,92,0.08)';
 }
 const DIR_ARROW = { bullish: '▲', bearish: '▼', neutral: '─' };
 
@@ -2167,14 +2167,14 @@ function SignalCard({ summary, showIndicators, onToggleIndicators, onRemove }) {
         {/* Score bar */}
         <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
           <span style={{ fontSize:'9px', fontFamily:'var(--font-mono)', color:'var(--text-muted)', minWidth:'20px' }}>−10</span>
-          <div style={{ flex:1, height:'4px', background:'rgba(255,255,255,0.06)', borderRadius:'2px', position:'relative' }}>
-            <div style={{ position:'absolute', left:'50%', top:'-2px', width:'1px', height:'8px', background:'rgba(255,255,255,0.15)' }} />
+          <div style={{ flex:1, height:'4px', background:'rgba(123,140,132,0.16)', borderRadius:'2px', position:'relative' }}>
+            <div style={{ position:'absolute', left:'50%', top:'-2px', width:'1px', height:'8px', background:'rgba(80,100,92,0.22)' }} />
             <div style={{
               position:'absolute',
               left: composite_score >= 0 ? '50%' : `${((composite_score + 10) / 20) * 100}%`,
               width:`${(Math.abs(composite_score) / 20) * 100}%`,
               height:'100%', borderRadius:'2px',
-              background: composite_score >= 3 ? 'var(--accent-green)' : composite_score <= -3 ? 'var(--accent-red)' : 'rgba(100,120,140,0.5)',
+              background: composite_score >= 3 ? 'var(--accent-green)' : composite_score <= -3 ? 'var(--accent-red)' : 'rgba(80,100,92,0.44)',
               transition:'width 0.3s ease',
             }} />
           </div>
@@ -2211,7 +2211,7 @@ function SignalCard({ summary, showIndicators, onToggleIndicators, onRemove }) {
                 {/* Conviction dots */}
                 <div style={{ display:'flex', gap:'3px', alignItems:'center', paddingTop:'2px', flexShrink:0 }}>
                   {[1,2,3,4,5].map(n => (
-                    <div key={n} style={{ width:'6px', height:'6px', borderRadius:'50%', background: n <= sig.conviction ? sc : 'rgba(255,255,255,0.08)' }} />
+                    <div key={n} style={{ width:'6px', height:'6px', borderRadius:'50%', background: n <= sig.conviction ? sc : 'rgba(123,140,132,0.18)' }} />
                   ))}
                 </div>
               </div>
