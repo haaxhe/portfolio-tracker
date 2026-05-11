@@ -25,6 +25,7 @@ window.fetch = (input, init = {}) => {
 };
 
 function AuthGate() {
+  const [publicView, setPublicView] = React.useState('landing');
   const [state, setState] = React.useState({
     loading: true,
     config: null,
@@ -100,14 +101,21 @@ function AuthGate() {
     return <div className="app-container"><div className="empty-state"><h3>{state.error}</h3></div></div>;
   }
   if (state.config?.auth_mode === 'supabase' && !state.session) {
+    if (publicView === 'demo') {
+      return (
+        <App
+          demoMode
+          demoData={DEMO_DATA}
+          onExitDemo={() => setPublicView('landing')}
+          onSignIn={signIn}
+        />
+      );
+    }
     return (
-      <div className="app-container">
-        <div className="empty-state">
-          <h3>WealthBrief</h3>
-          <p style={{ marginBottom: 18 }}>Sign in to track your portfolio.</p>
-          <button className="btn btn-primary" onClick={signIn}>Continue with Google</button>
-        </div>
-      </div>
+      <LandingPage
+        onSignIn={signIn}
+        onViewDemo={() => setPublicView('demo')}
+      />
     );
   }
   return <App authUser={state.session?.user || null} onSignOut={state.client ? signOut : null} />;
@@ -121,6 +129,140 @@ function formatPct(n) {
   if (n == null || isNaN(n)) return '0.00%';
   return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
 }
+
+function isoDaysAgo(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function makeDemoPosition(input) {
+  const market_value = input.quantity * input.current_price;
+  const costBasis = input.quantity * input.average_cost;
+  const unrealized_gain = market_value - costBasis;
+  return {
+    id: input.id,
+    symbol: input.symbol,
+    name: input.name,
+    broker: input.broker,
+    asset_type: input.asset_type || 'stock',
+    quantity: input.quantity,
+    average_cost: input.average_cost,
+    current_price: input.current_price,
+    market_value,
+    unrealized_gain,
+    unrealized_gain_pct: costBasis > 0 ? (unrealized_gain / costBasis) * 100 : 0,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function makeDemoClosedPosition(input) {
+  const realized_gain = (input.close_price - input.average_cost) * input.quantity;
+  const costBasis = input.average_cost * input.quantity;
+  return {
+    ...input,
+    realized_gain,
+    realized_gain_pct: costBasis > 0 ? (realized_gain / costBasis) * 100 : 0,
+  };
+}
+
+function makeDemoHistory(currentPrice, trendPct, wavePct = 0.018) {
+  const dates = [];
+  const closes = [];
+  const points = 42;
+  const startingPrice = currentPrice / (1 + trendPct);
+  for (let i = points - 1; i >= 0; i -= 1) {
+    const progress = (points - 1 - i) / (points - 1);
+    const wave = Math.sin(progress * Math.PI * 4.5) * currentPrice * wavePct;
+    const drift = startingPrice + (currentPrice - startingPrice) * progress;
+    dates.push(isoDaysAgo(i));
+    closes.push(Number((drift + wave).toFixed(2)));
+  }
+  closes[closes.length - 1] = currentPrice;
+  return { dates, closes };
+}
+
+function buildDemoPortfolio(positions) {
+  const total_value = positions.reduce((s, p) => s + p.market_value, 0);
+  const total_cost = positions.reduce((s, p) => s + p.quantity * p.average_cost, 0);
+  const total_gain = total_value - total_cost;
+  const broker_breakdown = positions.reduce((acc, p) => {
+    acc[p.broker] = (acc[p.broker] || 0) + p.market_value;
+    return acc;
+  }, {});
+  return {
+    total_value,
+    total_cost,
+    total_gain,
+    total_gain_pct: total_cost > 0 ? (total_gain / total_cost) * 100 : 0,
+    positions,
+    broker_breakdown,
+    last_refresh: new Date().toISOString(),
+  };
+}
+
+function groupTaxLots(lots) {
+  return lots.reduce((acc, lot) => {
+    const key = `${lot.symbol}-${lot.broker}`;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(lot);
+    return acc;
+  }, {});
+}
+
+const DEMO_DATA = (() => {
+  const positions = [
+    makeDemoPosition({ id: 1, symbol: 'NVDA', name: 'NVIDIA Corp.', broker: 'robinhood', quantity: 42, average_cost: 512.2, current_price: 925.35 }),
+    makeDemoPosition({ id: 2, symbol: 'MSFT', name: 'Microsoft Corp.', broker: 'etrade', quantity: 58, average_cost: 319.8, current_price: 431.4 }),
+    makeDemoPosition({ id: 3, symbol: 'VTI', name: 'Vanguard Total Stock Market ETF', broker: 'etrade', quantity: 120, average_cost: 211.6, current_price: 276.1, asset_type: 'etf' }),
+    makeDemoPosition({ id: 4, symbol: 'AAPL', name: 'Apple Inc.', broker: 'csv', quantity: 70, average_cost: 205.1, current_price: 178.35 }),
+    makeDemoPosition({ id: 5, symbol: 'TSLA', name: 'Tesla Inc.', broker: 'robinhood', quantity: 32, average_cost: 192.4, current_price: 248.75 }),
+    makeDemoPosition({ id: 6, symbol: 'CASH', name: 'Cash Balance', broker: 'etrade', quantity: 1, average_cost: 18500, current_price: 18500, asset_type: 'cash' }),
+  ];
+
+  const taxLots = groupTaxLots([
+    { id: 101, symbol: 'NVDA', broker: 'robinhood', quantity: 24, cost_basis: 420.1, acquired_at: '2024-06-14', holding_period: 'long' },
+    { id: 102, symbol: 'NVDA', broker: 'robinhood', quantity: 18, cost_basis: 635.0, acquired_at: '2025-08-22', holding_period: 'short' },
+    { id: 201, symbol: 'MSFT', broker: 'etrade', quantity: 58, cost_basis: 319.8, acquired_at: '2023-11-17', holding_period: 'long' },
+    { id: 301, symbol: 'VTI', broker: 'etrade', quantity: 120, cost_basis: 211.6, acquired_at: '2022-03-09', holding_period: 'long' },
+    { id: 401, symbol: 'AAPL', broker: 'csv', quantity: 70, cost_basis: 205.1, acquired_at: '2025-12-04', holding_period: 'short' },
+    { id: 501, symbol: 'TSLA', broker: 'robinhood', quantity: 32, cost_basis: 192.4, acquired_at: '2025-07-15', holding_period: 'short' },
+  ]);
+
+  const closedPositions = [
+    makeDemoClosedPosition({ id: 1, symbol: 'META', name: 'Meta Platforms Inc.', broker: 'etrade', quantity: 18, average_cost: 312.4, close_price: 487.2, acquired_at: '2024-01-12', closed_at: `${new Date().getFullYear()}-02-21` }),
+    makeDemoClosedPosition({ id: 2, symbol: 'AMD', name: 'Advanced Micro Devices', broker: 'robinhood', quantity: 40, average_cost: 167.2, close_price: 141.8, acquired_at: '2025-10-08', closed_at: `${new Date().getFullYear()}-03-18` }),
+    makeDemoClosedPosition({ id: 3, symbol: 'CRM', name: 'Salesforce Inc.', broker: 'csv', quantity: 22, average_cost: 221.5, close_price: 274.9, acquired_at: '2024-04-26', closed_at: `${new Date().getFullYear()}-04-11` }),
+  ];
+
+  const priceHistory = {
+    NVDA: makeDemoHistory(925.35, 0.18),
+    MSFT: makeDemoHistory(431.4, 0.07),
+    VTI: makeDemoHistory(276.1, 0.045),
+    AAPL: makeDemoHistory(178.35, -0.08),
+    TSLA: makeDemoHistory(248.75, 0.12, 0.04),
+  };
+
+  const snapshots = [
+    { date: isoDaysAgo(120), total_value: 129800 },
+    { date: isoDaysAgo(90), total_value: 137450 },
+    { date: isoDaysAgo(60), total_value: 144900 },
+    { date: isoDaysAgo(30), total_value: 151200 },
+  ];
+  const historyEntries = [
+    { id: 1, date: isoDaysAgo(210), total_value: 118000, label: 'Started tracking', is_estimate: false },
+    { id: 2, date: isoDaysAgo(150), total_value: 126500, label: 'CSV import', is_estimate: false },
+  ];
+
+  return {
+    portfolio: buildDemoPortfolio(positions),
+    taxLots,
+    closedPositions,
+    priceHistory,
+    snapshots,
+    historyEntries,
+  };
+})();
 
 // Slice dates+closes arrays to only include points within the chosen range
 function filterByRange(dates, closes, rangeKey) {
@@ -136,6 +278,145 @@ function filterByRange(dates, closes, rangeKey) {
   const startIdx = dates.findIndex(d => d >= cutStr);
   if (startIdx === -1) return { dates: [], closes: [] };
   return { dates: dates.slice(startIdx), closes: closes.slice(startIdx) };
+}
+
+function LandingDashboardPreview() {
+  const positions = DEMO_DATA.portfolio.positions.filter(p => p.asset_type !== 'cash').slice(0, 4);
+  const gain = DEMO_DATA.portfolio.total_gain;
+  const ytd = DEMO_DATA.closedPositions.reduce((sum, p) => sum + p.realized_gain, 0);
+  const tslaLot = DEMO_DATA.taxLots['TSLA-robinhood']?.[0];
+  return (
+    <div className="landing-dashboard-preview" aria-hidden="true">
+      <div className="landing-preview-bar">
+        <span>WealthBrief</span>
+        <span>Sample Tax Center</span>
+      </div>
+      <div className="landing-preview-metrics">
+        <div>
+          <span>Total Value</span>
+          <strong>{formatMoney(DEMO_DATA.portfolio.total_value)}</strong>
+        </div>
+        <div>
+          <span>Unrealized</span>
+          <strong className={gain >= 0 ? 'positive' : 'negative'}>{formatMoney(gain)}</strong>
+        </div>
+        <div>
+          <span>YTD Realized</span>
+          <strong className={ytd >= 0 ? 'positive' : 'negative'}>{formatMoney(ytd)}</strong>
+        </div>
+      </div>
+      <div className="landing-preview-grid">
+        <div className="landing-preview-table">
+          <div className="landing-preview-heading">Holdings</div>
+          {positions.map(position => {
+            const lots = DEMO_DATA.taxLots[`${position.symbol}-${position.broker}`] || [];
+            const longLots = lots.filter(l => l.holding_period === 'long').length;
+            const shortLots = lots.length - longLots;
+            return (
+              <div className="landing-preview-row" key={`${position.symbol}-${position.broker}`}>
+                <span>{position.symbol}</span>
+                <span>{formatMoney(position.market_value)}</span>
+                <span className={position.unrealized_gain >= 0 ? 'positive' : 'negative'}>
+                  {formatPct(position.unrealized_gain_pct)}
+                </span>
+                <span>{longLots} LT / {shortLots} ST</span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="landing-preview-tax">
+          <div className="landing-preview-heading">Tax Watch</div>
+          <div>
+            <span>Loss candidate</span>
+            <strong>AAPL {formatMoney(-1872.5)}</strong>
+          </div>
+          <div>
+            <span>Long-term soon</span>
+            <strong>TSLA lot in {tslaLot ? daysUntilLongTerm(tslaLot) : 0} days</strong>
+          </div>
+          <div>
+            <span>Next export</span>
+            <strong>Advisor-ready CSV</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LandingPage({ onSignIn, onViewDemo }) {
+  return (
+    <main className="landing-page">
+      <nav className="landing-nav">
+        <button className="landing-brand" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+          <span>▸</span> WealthBrief
+        </button>
+        <div className="landing-nav-actions">
+          <button className="btn" onClick={onViewDemo}>View demo</button>
+          <button className="btn btn-primary" onClick={onSignIn}>Continue with Google</button>
+        </div>
+      </nav>
+
+      <section className="landing-hero">
+        <div className="landing-hero-visual">
+          <LandingDashboardPreview />
+        </div>
+        <div className="landing-hero-copy">
+          <div className="landing-kicker">Tax-aware portfolio tracking</div>
+          <h1>WealthBrief</h1>
+          <p>
+            Track holdings, tax lots, realized P&amp;L, and portfolio history in one place before you make taxable trades.
+          </p>
+          <div className="landing-actions">
+            <button className="btn btn-primary" onClick={onViewDemo}>Explore demo portfolio</button>
+            <button className="btn" onClick={onSignIn}>Sign in with Google</button>
+          </div>
+          <div className="landing-proof-row">
+            <span>CSV-first onboarding</span>
+            <span>Lot-level P&amp;L</span>
+            <span>Exportable records</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-section">
+        <div className="landing-section-heading">
+          <span className="landing-kicker">Why it exists</span>
+          <h2>Built for investors who outgrew spreadsheets.</h2>
+        </div>
+        <div className="landing-feature-grid">
+          <div className="landing-feature-card">
+            <span>01</span>
+            <h3>See tax lots before you sell</h3>
+            <p>Separate long-term and short-term lots, inspect cost basis, and spot taxable gains while positions are still open.</p>
+          </div>
+          <div className="landing-feature-card">
+            <span>02</span>
+            <h3>Track realized P&amp;L cleanly</h3>
+            <p>Keep closed positions, YTD gains, and monthly P&amp;L in a dashboard that is easier to review than a broker export.</p>
+          </div>
+          <div className="landing-feature-card">
+            <span>03</span>
+            <h3>Start manually, upgrade later</h3>
+            <p>Add positions by hand or CSV while WealthBrief keeps broker integrations out of the trust-critical first step.</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-demo-band">
+        <div>
+          <span className="landing-kicker">No login required</span>
+          <h2>Open a realistic sample portfolio.</h2>
+          <p>Click holdings, inspect tax lots, review closed trades, and see the kind of records WealthBrief is designed to organize.</p>
+        </div>
+        <button className="btn btn-primary" onClick={onViewDemo}>Launch demo</button>
+      </section>
+
+      <footer className="landing-footer">
+        <span>WealthBrief is for tracking and organization only. Not financial, tax, or investment advice.</span>
+      </footer>
+    </main>
+  );
 }
 
 function DateRangeFilter({ value, onChange }) {
@@ -765,6 +1046,104 @@ function TopHoldings({ positions }) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function daysUntilLongTerm(lot) {
+  const acquired = new Date(`${lot.acquired_at}T12:00:00Z`);
+  const longTermDate = new Date(acquired);
+  longTermDate.setUTCDate(longTermDate.getUTCDate() + 365);
+  return Math.max(0, Math.ceil((longTermDate - new Date()) / 86400000));
+}
+
+function DemoTaxLotsPanel({ position, lots, onSignIn }) {
+  if (!position) {
+    return (
+      <div className="demo-side-note">
+        Click a holding in the table to inspect the sample tax lots behind it.
+      </div>
+    );
+  }
+
+  const lotGain = lot => (position.current_price - lot.cost_basis) * lot.quantity;
+  const totalLotGain = lots.reduce((sum, lot) => sum + lotGain(lot), 0);
+
+  return (
+    <div className="demo-tax-lots">
+      <div className="demo-tax-header">
+        <div>
+          <strong>{position.symbol}</strong>
+          <span className={`broker-tag broker-${position.broker}`}>{position.broker}</span>
+        </div>
+        <span className={totalLotGain >= 0 ? 'positive' : 'negative'}>{formatMoney(totalLotGain)}</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Shares</th>
+            <th>Cost</th>
+            <th>Lot P&amp;L</th>
+            <th>Term</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lots.map(lot => {
+            const gain = lotGain(lot);
+            return (
+              <tr key={lot.id}>
+                <td>{lot.acquired_at}</td>
+                <td>{lot.quantity}</td>
+                <td>{formatMoney(lot.cost_basis)}</td>
+                <td className={gain >= 0 ? 'positive' : 'negative'}>{formatMoney(gain)}</td>
+                <td>
+                  <span className={`lot-badge ${lot.holding_period === 'long' ? 'lot-long' : 'lot-short'}`}>
+                    {lot.holding_period === 'long' ? 'LT' : `${daysUntilLongTerm(lot)}d`}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <button className="btn btn-primary demo-panel-cta" onClick={onSignIn}>Track my real lots</button>
+    </div>
+  );
+}
+
+function DemoTaxInsightPanel({ positions, taxLots, closedPositions, onSignIn }) {
+  const enrichedLots = Object.values(taxLots).flat().map(lot => {
+    const position = positions.find(p => p.symbol === lot.symbol && p.broker === lot.broker);
+    const gain = position ? (position.current_price - lot.cost_basis) * lot.quantity : 0;
+    return { ...lot, position, gain, daysToLong: daysUntilLongTerm(lot) };
+  });
+  const lossLots = enrichedLots.filter(lot => lot.gain < 0).sort((a, b) => a.gain - b.gain);
+  const upcomingLots = enrichedLots
+    .filter(lot => lot.holding_period === 'short' && lot.daysToLong > 0)
+    .sort((a, b) => a.daysToLong - b.daysToLong)
+    .slice(0, 2);
+  const realized = closedPositions.reduce((sum, p) => sum + p.realized_gain, 0);
+
+  return (
+    <div className="demo-insight-list">
+      <div className="demo-insight-item">
+        <span>YTD realized P&amp;L</span>
+        <strong className={realized >= 0 ? 'positive' : 'negative'}>{formatMoney(realized)}</strong>
+      </div>
+      {lossLots.slice(0, 1).map(lot => (
+        <div className="demo-insight-item" key={`loss-${lot.id}`}>
+          <span>Harvest watch</span>
+          <strong>{lot.symbol} {formatMoney(lot.gain)}</strong>
+        </div>
+      ))}
+      {upcomingLots.map(lot => (
+        <div className="demo-insight-item" key={`soon-${lot.id}`}>
+          <span>Long-term window</span>
+          <strong>{lot.symbol} in {lot.daysToLong} days</strong>
+        </div>
+      ))}
+      <button className="btn demo-panel-cta" onClick={onSignIn}>Use with my portfolio</button>
     </div>
   );
 }
@@ -1445,9 +1824,9 @@ function GoalProgressBar({ ytdRealized, unrealizedGain }) {
   );
 }
 
-function PortfolioHistoryChart({ currentValue }) {
-  const [history, setHistory] = React.useState([]);
-  const [snaps, setSnaps] = React.useState([]);
+function PortfolioHistoryChart({ currentValue, historySeed = null, snapshotsSeed = null, readOnly = false }) {
+  const [history, setHistory] = React.useState(historySeed || []);
+  const [snaps, setSnaps] = React.useState(snapshotsSeed || []);
   const [showForm, setShowForm] = React.useState(false);
   const [showEntries, setShowEntries] = React.useState(false);
   const [form, setForm] = React.useState({ date: '', total_value: '', label: '', is_estimate: true });
@@ -1465,7 +1844,9 @@ function PortfolioHistoryChart({ currentValue }) {
     } catch(e) { console.error('HistoryChart:', e); }
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    if (!readOnly) loadData();
+  }, [readOnly]);
 
   const combined = React.useMemo(() => {
     const map = {};
@@ -1593,9 +1974,11 @@ function PortfolioHistoryChart({ currentValue }) {
               {showEntries ? 'Hide' : 'Entries'} ({history.length})
             </button>
           )}
-          <button className="btn" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => setShowForm(v => !v)}>
-            {showForm ? 'Cancel' : '+ Add'}
-          </button>
+          {!readOnly && (
+            <button className="btn" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => setShowForm(v => !v)}>
+              {showForm ? 'Cancel' : '+ Add'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1695,15 +2078,17 @@ function PortfolioHistoryChart({ currentValue }) {
               <span style={{ color: 'var(--text-muted)', fontSize: '9px', textTransform: 'uppercase' }}>
                 {h.is_estimate ? 'est.' : 'actual'}
               </span>
-              <button onClick={() => handleDelete(h.id)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '13px', padding: '0 2px', marginLeft: 'auto' }}>×</button>
+              {!readOnly && (
+                <button onClick={() => handleDelete(h.id)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '13px', padding: '0 2px', marginLeft: 'auto' }}>×</button>
+              )}
             </div>
           ))}
         </div>
       )}
 
       {/* Add entry form */}
-      {showForm && (
+      {showForm && !readOnly && (
         <form onSubmit={handleAdd} className="hist-form-row">
           <div className="form-row" style={{ flex: '0 0 140px', marginBottom: 0 }}>
             <label className="form-label">Date *</label>
@@ -2018,13 +2403,13 @@ function SignalsView({ portfolioSymbols = [] }) {
   );
 }
 
-function App({ authUser, onSignOut }) {
-  const [portfolio, setPortfolio] = useState(null);
-  const [closedPositions, setClosedPositions] = useState([]);
-  const [taxLots, setTaxLots] = useState({});        // key: "SYMBOL-broker" → lot[]
-  const [priceHistory, setPriceHistory] = useState({});  // symbol → close[] oldest→newest
+function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDemo = null, onSignIn = null }) {
+  const [portfolio, setPortfolio] = useState(demoMode ? demoData.portfolio : null);
+  const [closedPositions, setClosedPositions] = useState(demoMode ? demoData.closedPositions : []);
+  const [taxLots, setTaxLots] = useState(demoMode ? demoData.taxLots : {});        // key: "SYMBOL-broker" → lot[]
+  const [priceHistory, setPriceHistory] = useState(demoMode ? demoData.priceHistory : {});  // symbol → close[] oldest→newest
   const [selectedPosition, setSelectedPosition] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!demoMode);
   const [toast, setToast] = useState(null);
   const [activeTab, setActiveTab] = useState('active');
   const [dateRange, setDateRange] = useState('1M');
@@ -2076,7 +2461,13 @@ function App({ authUser, onSignOut }) {
     }
   }, []);
 
-  useEffect(() => { fetchPortfolio(); fetchClosed(); fetchTaxLots(); fetchPriceHistory(); }, [fetchPortfolio, fetchClosed, fetchTaxLots, fetchPriceHistory]);
+  useEffect(() => {
+    if (demoMode) return;
+    fetchPortfolio();
+    fetchClosed();
+    fetchTaxLots();
+    fetchPriceHistory();
+  }, [demoMode, fetchPortfolio, fetchClosed, fetchTaxLots, fetchPriceHistory]);
 
   // Scroll Tax Lots panel into view when a position is selected
   useEffect(() => {
@@ -2087,6 +2478,10 @@ function App({ authUser, onSignOut }) {
   }, [selectedPosition]);
 
   const handleRefresh = async () => {
+    if (demoMode) {
+      setToast({ message: 'Demo data is already loaded', type: 'success' });
+      return;
+    }
     setLoading(true);
     try {
       await fetch(`${API}/api/refresh`, { method: 'POST' });
@@ -2100,6 +2495,10 @@ function App({ authUser, onSignOut }) {
   };
 
   const handleUpload = async (formData, broker) => {
+    if (demoMode) {
+      setToast({ message: 'Sign in to import your own CSV', type: 'success' });
+      return;
+    }
     try {
       const res = await fetch(`${API}/api/import/csv?broker=${broker}`, {
         method: 'POST', body: formData,
@@ -2117,15 +2516,27 @@ function App({ authUser, onSignOut }) {
   };
 
   const handleExport = () => {
+    if (demoMode) {
+      setToast({ message: 'Sign in to export your own records', type: 'success' });
+      return;
+    }
     window.open(`${API}/api/export/csv`, '_blank');
   };
 
   const handleDeleteClosed = async (id) => {
+    if (demoMode) {
+      setToast({ message: 'Demo trades are read-only', type: 'success' });
+      return;
+    }
     await fetch(`${API}/api/closed-positions/${id}`, { method: 'DELETE' });
     fetchClosed();
   };
 
   const handleAddActive = async (position) => {
+    if (demoMode) {
+      setToast({ message: 'Sign in to add real positions', type: 'success' });
+      return;
+    }
     await fetchPortfolio();
     await fetchPriceHistory();
     setActiveTab('active');
@@ -2167,23 +2578,33 @@ function App({ authUser, onSignOut }) {
       {/* Header */}
       <div className="header">
         <div className="header-left">
-          <h1><span>▸</span> Portfolio Tracker</h1>
+          <h1><span>▸</span> {demoMode ? 'WealthBrief Demo' : 'WealthBrief'}</h1>
           <div className="subtitle">
             {hasData
               ? `${positions.length} positions across ${Object.keys(portfolio.broker_breakdown || {}).length} broker(s)`
               : 'No positions loaded'
             }
+            {demoMode && <span className="prices-as-of"> · sample data</span>}
             {pricesAsOf && (
               <span className="prices-as-of"> · prices as of {pricesAsOf}</span>
             )}
           </div>
         </div>
         <div className="header-actions">
-          {authUser && <button className="btn" onClick={onSignOut}>Sign out</button>}
-          <button className="btn" onClick={handleExport}>Export CSV</button>
-          <button className="btn btn-primary" onClick={handleRefresh}>
-            {loading ? '...' : 'Refresh'}
-          </button>
+          {demoMode ? (
+            <>
+              <button className="btn" onClick={onExitDemo}>Back to site</button>
+              <button className="btn btn-primary" onClick={onSignIn}>Use my portfolio</button>
+            </>
+          ) : (
+            <>
+              {authUser && <button className="btn" onClick={onSignOut}>Sign out</button>}
+              <button className="btn" onClick={handleExport}>Export CSV</button>
+              <button className="btn btn-primary" onClick={handleRefresh}>
+                {loading ? '...' : 'Refresh'}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -2236,13 +2657,15 @@ function App({ authUser, onSignOut }) {
               >
                 Closed ({closedPositions.length})
               </button>
-              <button
-                className={`tab-btn${activeTab === 'signals' ? ' active' : ''}`}
-                onClick={() => { setActiveTab('signals'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
-                style={{ color: activeTab === 'signals' ? 'var(--accent-blue)' : undefined }}
-              >
-                ◈ Signals
-              </button>
+              {!demoMode && (
+                <button
+                  className={`tab-btn${activeTab === 'signals' ? ' active' : ''}`}
+                  onClick={() => { setActiveTab('signals'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
+                  style={{ color: activeTab === 'signals' ? 'var(--accent-blue)' : undefined }}
+                >
+                  ◈ Signals
+                </button>
+              )}
             </div>
           </div>
           {activeTab === 'active' ? (
@@ -2284,17 +2707,39 @@ function App({ authUser, onSignOut }) {
               )}
             </div>
             {selectedPosition ? (
-              <TaxLotsPanel
-                position={selectedPosition}
-                lots={taxLots[`${selectedPosition.symbol}-${selectedPosition.broker}`] || []}
-                onRefresh={() => { fetchTaxLots(); fetchPortfolio(); fetchClosed(); }}
-              />
+              demoMode ? (
+                <DemoTaxLotsPanel
+                  position={selectedPosition}
+                  lots={taxLots[`${selectedPosition.symbol}-${selectedPosition.broker}`] || []}
+                  onSignIn={onSignIn}
+                />
+              ) : (
+                <TaxLotsPanel
+                  position={selectedPosition}
+                  lots={taxLots[`${selectedPosition.symbol}-${selectedPosition.broker}`] || []}
+                  onRefresh={() => { fetchTaxLots(); fetchPortfolio(); fetchClosed(); }}
+                />
+              )
             ) : (
               <div style={{ padding: '20px 16px', fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center' }}>
-                Click a position to manage its tax lots
+                {demoMode ? 'Click a sample holding to inspect its tax lots' : 'Click a position to manage its tax lots'}
               </div>
             )}
           </div>
+
+          {demoMode && (
+            <div className="panel">
+              <div className="panel-header">
+                <span className="panel-title">Tax Watch</span>
+              </div>
+              <DemoTaxInsightPanel
+                positions={positions}
+                taxLots={taxLots}
+                closedPositions={closedPositions}
+                onSignIn={onSignIn}
+              />
+            </div>
+          )}
 
           {/* Broker breakdown */}
           {hasData && (
@@ -2309,29 +2754,33 @@ function App({ authUser, onSignOut }) {
             </div>
           )}
 
-          {/* Cash balances */}
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">Cash Balances</span>
-            </div>
-            <CashPanel onSave={fetchPortfolio} />
-          </div>
+          {!demoMode && (
+            <>
+              {/* Cash balances */}
+              <div className="panel">
+                <div className="panel-header">
+                  <span className="panel-title">Cash Balances</span>
+                </div>
+                <CashPanel onSave={fetchPortfolio} />
+              </div>
 
-          {/* Add active position */}
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">Add Active Position</span>
-            </div>
-            <AddActivePositionForm onAdd={handleAddActive} />
-          </div>
+              {/* Add active position */}
+              <div className="panel">
+                <div className="panel-header">
+                  <span className="panel-title">Add Active Position</span>
+                </div>
+                <AddActivePositionForm onAdd={handleAddActive} />
+              </div>
 
-          {/* Log closed position */}
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">Log Closed Position</span>
-            </div>
-            <AddClosedPositionForm onAdd={() => { fetchClosed(); setActiveTab('closed'); }} />
-          </div>
+              {/* Log closed position */}
+              <div className="panel">
+                <div className="panel-header">
+                  <span className="panel-title">Log Closed Position</span>
+                </div>
+                <AddClosedPositionForm onAdd={() => { fetchClosed(); setActiveTab('closed'); }} />
+              </div>
+            </>
+          )}
 
           {/* Top holdings */}
           {hasData && (
@@ -2349,7 +2798,12 @@ function App({ authUser, onSignOut }) {
       <PnLTimeline closedPositions={closedPositions} />
 
       {/* Portfolio History Chart — growth vs S&P 500 */}
-      <PortfolioHistoryChart currentValue={portfolio?.total_value} />
+      <PortfolioHistoryChart
+        currentValue={portfolio?.total_value}
+        historySeed={demoMode ? demoData.historyEntries : null}
+        snapshotsSeed={demoMode ? demoData.snapshots : null}
+        readOnly={demoMode}
+      />
 
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
