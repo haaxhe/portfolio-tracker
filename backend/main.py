@@ -151,7 +151,7 @@ def api_positions_by_broker(
 async def api_import_csv(
     request: Request,
     file: UploadFile = File(...),
-    broker: BrokerName = Query(BrokerName.CSV, description="Label: robinhood, etrade, or csv"),
+    broker: BrokerName = Query(BrokerName.CSV, description="Broker label for imported positions"),
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Import positions from a CSV file."""

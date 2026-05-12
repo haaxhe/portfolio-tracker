@@ -100,17 +100,19 @@ function AuthGate() {
   if (state.error) {
     return <div className="app-container"><div className="empty-state"><h3>{state.error}</h3></div></div>;
   }
+  if (publicView === 'demo') {
+    const canOpenPortfolio = state.session || state.config?.auth_mode !== 'supabase';
+    return (
+      <App
+        authUser={state.session?.user || (state.config?.auth_mode !== 'supabase' ? { id: 'local' } : null)}
+        demoMode
+        demoData={DEMO_DATA}
+        onExitDemo={() => setPublicView('landing')}
+        onSignIn={canOpenPortfolio ? () => setPublicView('landing') : signIn}
+      />
+    );
+  }
   if (state.config?.auth_mode === 'supabase' && !state.session) {
-    if (publicView === 'demo') {
-      return (
-        <App
-          demoMode
-          demoData={DEMO_DATA}
-          onExitDemo={() => setPublicView('landing')}
-          onSignIn={signIn}
-        />
-      );
-    }
     return (
       <LandingPage
         onSignIn={signIn}
@@ -118,7 +120,13 @@ function AuthGate() {
       />
     );
   }
-  return <App authUser={state.session?.user || null} onSignOut={state.client ? signOut : null} />;
+  return (
+    <App
+      authUser={state.session?.user || null}
+      onSignOut={state.client ? signOut : null}
+      onViewDemo={() => setPublicView('demo')}
+    />
+  );
 }
 
 function formatMoney(n) {
@@ -128,6 +136,88 @@ function formatMoney(n) {
 function formatPct(n) {
   if (n == null || isNaN(n)) return '0.00%';
   return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+
+const BROKER_OPTIONS = [
+  { value: 'csv', label: 'Generic CSV' },
+  { value: 'robinhood', label: 'Robinhood' },
+  { value: 'etrade', label: 'E*Trade' },
+  { value: 'schwab', label: 'Schwab' },
+  { value: 'fidelity', label: 'Fidelity' },
+  { value: 'interactive_brokers', label: 'Interactive Brokers' },
+];
+
+const MANUAL_BROKER_OPTIONS = [
+  { value: 'csv', label: 'Manual / Other' },
+  ...BROKER_OPTIONS.filter(b => b.value !== 'csv'),
+];
+
+const CSV_TEMPLATES = {
+  csv: {
+    filename: 'wealthbrief-generic-template.csv',
+    rows: [
+      ['Symbol', 'Name', 'Quantity', 'Average Cost', 'Current Price', 'Type'],
+      ['AAPL', 'Apple Inc.', '10', '150.00', '178.35', 'stock'],
+    ],
+  },
+  robinhood: {
+    filename: 'wealthbrief-robinhood-template.csv',
+    rows: [
+      ['Instrument', 'Description', 'Quantity', 'Average Price', 'Market Price', 'Type'],
+      ['NVDA', 'NVIDIA Corp.', '5', '512.20', '925.35', 'stock'],
+    ],
+  },
+  etrade: {
+    filename: 'wealthbrief-etrade-template.csv',
+    rows: [
+      ['Symbol', 'Description', 'Quantity', 'Avg Cost', 'Last Price', 'Security Type'],
+      ['MSFT', 'Microsoft Corp.', '8', '319.80', '431.40', 'stock'],
+    ],
+  },
+  schwab: {
+    filename: 'wealthbrief-schwab-template.csv',
+    rows: [
+      ['Symbol', 'Description', 'Quantity', 'Cost Basis Per Share', 'Market Price', 'Security Type'],
+      ['VTI', 'Vanguard Total Stock Market ETF', '12', '211.60', '276.10', 'etf'],
+    ],
+  },
+  fidelity: {
+    filename: 'wealthbrief-fidelity-template.csv',
+    rows: [
+      ['Symbol', 'Description', 'Quantity', 'Average Cost', 'Last Price', 'Type'],
+      ['AAPL', 'Apple Inc.', '10', '205.10', '178.35', 'stock'],
+    ],
+  },
+  interactive_brokers: {
+    filename: 'wealthbrief-interactive-brokers-template.csv',
+    rows: [
+      ['Symbol', 'Description', 'Quantity', 'Average Price', 'Market Price', 'Asset Type'],
+      ['TSLA', 'Tesla Inc.', '6', '192.40', '248.75', 'stock'],
+    ],
+  },
+};
+
+function brokerLabel(value) {
+  return BROKER_OPTIONS.find(b => b.value === value)?.label || value;
+}
+
+function csvEscape(value) {
+  const text = String(value);
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function downloadCsvTemplate(broker) {
+  const template = CSV_TEMPLATES[broker] || CSV_TEMPLATES.csv;
+  const csv = template.rows.map(row => row.map(csvEscape).join(',')).join('\n') + '\n';
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = template.filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 function isoDaysAgo(days) {
@@ -801,7 +891,14 @@ function PositionsTable({ positions, taxLots, selectedKey, onSelectPosition, pri
 }
 
 function BrokerBreakdown({ breakdown, total }) {
-  const colors = { robinhood: '#0f8a5f', etrade: '#2f6f9f', csv: '#b98217' };
+  const colors = {
+    robinhood: '#0f8a5f',
+    etrade: '#2f6f9f',
+    schwab: '#6f7f2f',
+    fidelity: '#8a5f0f',
+    interactive_brokers: '#5f7092',
+    csv: '#b98217',
+  };
   return (
     <div>
       {Object.entries(breakdown).map(([broker, value]) => (
@@ -830,44 +927,100 @@ function UploadPanel({ onUpload }) {
   const fileRef = useRef();
   const [broker, setBroker] = useState('csv');
 
-  const handleFile = async (e) => {
-    const file = e.target.files[0];
+  const uploadFile = (file) => {
     if (!file) return;
     const form = new FormData();
     form.append('file', file);
     onUpload(form, broker);
-    fileRef.current.value = '';
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const handleFile = async (e) => {
+    uploadFile(e.target.files[0]);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    uploadFile(e.dataTransfer.files[0]);
   };
 
   return (
-    <div>
-      <div style={{padding:'12px 16px', display:'flex', gap:'8px', alignItems:'center'}}>
+    <div className="upload-panel">
+      <div className="upload-controls">
         <select
+          className="form-input"
           value={broker}
           onChange={e => setBroker(e.target.value)}
-          style={{
-            background:'var(--bg-primary)', color:'var(--text-secondary)',
-            border:'1px solid var(--border-accent)', borderRadius:'4px',
-            padding:'4px 8px', fontFamily:'var(--font-mono)', fontSize:'11px'
-          }}
         >
-          <option value="csv">Generic CSV</option>
-          <option value="robinhood">Robinhood</option>
-          <option value="etrade">E*Trade</option>
+          {BROKER_OPTIONS.map(option => (
+            <option value={option.value} key={option.value}>{option.label}</option>
+          ))}
         </select>
+        <button type="button" className="btn" onClick={() => downloadCsvTemplate(broker)}>
+          Download {brokerLabel(broker)} template
+        </button>
       </div>
-      <div className="upload-zone" onClick={() => fileRef.current.click()}>
+      <div
+        className="upload-zone"
+        onClick={() => fileRef.current.click()}
+        onDragOver={e => e.preventDefault()}
+        onDrop={handleDrop}
+      >
         <div className="upload-icon">↑</div>
         <p>Drop CSV or click to upload</p>
+        <span>Use the selected broker label so imported positions stay organized.</span>
         <input ref={fileRef} type="file" accept=".csv" hidden onChange={handleFile} />
       </div>
     </div>
   );
 }
 
+function OnboardingPanel({ onUpload, onAdd, onViewDemo }) {
+  const [choice, setChoice] = useState('import');
+
+  return (
+    <div className="onboarding-panel">
+      <div className="onboarding-intro">
+        <span>Get started</span>
+        <h3>Choose how to build your first portfolio</h3>
+        <p>Import a broker export, enter one position manually, or explore the sample portfolio before adding real data.</p>
+      </div>
+      <div className="onboarding-choice-grid">
+        <button
+          type="button"
+          className={`onboarding-choice${choice === 'import' ? ' active' : ''}`}
+          onClick={() => setChoice('import')}
+        >
+          <strong>Import CSV</strong>
+          <span>Upload holdings from Robinhood, E*Trade, Schwab, Fidelity, Interactive Brokers, or a generic export.</span>
+        </button>
+        <button
+          type="button"
+          className={`onboarding-choice${choice === 'manual' ? ' active' : ''}`}
+          onClick={() => setChoice('manual')}
+        >
+          <strong>Add manually</strong>
+          <span>Start with a single holding and add tax lots after the position is saved.</span>
+        </button>
+        <button type="button" className="onboarding-choice" onClick={onViewDemo}>
+          <strong>Use sample portfolio</strong>
+          <span>Open a realistic dashboard with sample holdings, tax lots, and closed trades.</span>
+        </button>
+      </div>
+      <div className="onboarding-workspace">
+        {choice === 'import' ? (
+          <UploadPanel onUpload={onUpload} />
+        ) : (
+          <AddActivePositionForm onAdd={onAdd} compact />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CashPanel({ onSave }) {
-  const brokers = ['etrade', 'robinhood'];
-  const [amounts, setAmounts] = React.useState({ etrade: '', robinhood: '' });
+  const brokers = BROKER_OPTIONS.filter(b => b.value !== 'csv');
+  const [amounts, setAmounts] = React.useState(Object.fromEntries(brokers.map(b => [b.value, ''])));
   const [saved, setSaved] = React.useState({});
 
   useEffect(() => {
@@ -892,9 +1045,9 @@ function CashPanel({ onSave }) {
 
   return (
     <div style={{ padding: '4px 0' }}>
-      {brokers.map(broker => (
+      {brokers.map(({ value: broker, label }) => (
         <div key={broker} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderBottom: '1px solid rgba(153,174,164,0.32)' }}>
-          <span className={`broker-tag broker-${broker}`} style={{ minWidth: '72px' }}>{broker}</span>
+          <span className={`broker-tag broker-${broker}`} style={{ minWidth: '72px' }}>{label}</span>
           <input
             type="number"
             min="0"
@@ -922,7 +1075,7 @@ function CashPanel({ onSave }) {
   );
 }
 
-function AddActivePositionForm({ onAdd }) {
+function AddActivePositionForm({ onAdd, compact = false }) {
   const empty = {
     symbol: '',
     name: '',
@@ -967,7 +1120,7 @@ function AddActivePositionForm({ onAdd }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} style={{ padding: '14px 16px' }}>
+    <form onSubmit={handleSubmit} style={{ padding: compact ? '0' : '14px 16px' }}>
       <div className="form-grid-2">
         <div className="form-row">
           <label className="form-label">Symbol *</label>
@@ -976,9 +1129,9 @@ function AddActivePositionForm({ onAdd }) {
         <div className="form-row">
           <label className="form-label">Broker *</label>
           <select className="form-input" value={form.broker} onChange={e => set('broker', e.target.value)}>
-            <option value="csv">Manual</option>
-            <option value="robinhood">Robinhood</option>
-            <option value="etrade">E*Trade</option>
+            {MANUAL_BROKER_OPTIONS.map(option => (
+              <option value={option.value} key={option.value}>{option.label}</option>
+            ))}
           </select>
         </div>
       </div>
@@ -1544,9 +1697,9 @@ function AddClosedPositionForm({ onAdd }) {
         <div className="form-row">
           <label className="form-label">Broker *</label>
           <select className="form-input" value={form.broker} onChange={e => set('broker', e.target.value)}>
-            <option value="robinhood">Robinhood</option>
-            <option value="etrade">E*Trade</option>
-            <option value="csv">Other</option>
+            {MANUAL_BROKER_OPTIONS.map(option => (
+              <option value={option.value} key={option.value}>{option.label}</option>
+            ))}
           </select>
         </div>
       </div>
@@ -2403,7 +2556,7 @@ function SignalsView({ portfolioSymbols = [] }) {
   );
 }
 
-function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDemo = null, onSignIn = null }) {
+function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDemo = null, onSignIn = null, onViewDemo = null }) {
   const [portfolio, setPortfolio] = useState(demoMode ? demoData.portfolio : null);
   const [closedPositions, setClosedPositions] = useState(demoMode ? demoData.closedPositions : []);
   const [taxLots, setTaxLots] = useState(demoMode ? demoData.taxLots : {});        // key: "SYMBOL-broker" → lot[]
@@ -2545,6 +2698,7 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
 
   const positions = portfolio?.positions || [];
   const hasData = positions.length > 0;
+  const hasAnyData = hasData || closedPositions.length > 0;
   const totalCash = positions.filter(p => p.asset_type === 'cash').reduce((s, p) => s + p.market_value, 0);
 
   const pricesAsOf = (() => {
@@ -2572,6 +2726,7 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
   const ytdRealized = closedPositions
     .filter(p => p.closed_at?.startsWith(currentYear))
     .reduce((s, p) => s + p.realized_gain, 0);
+  const showPortfolioOverview = activeTab !== 'signals' && (hasAnyData || demoMode);
 
   return (
     <div className="app-container">
@@ -2593,7 +2748,7 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
         <div className="header-actions">
           {demoMode ? (
             <>
-              <button className="btn" onClick={onExitDemo}>Back to site</button>
+              <button className="btn" onClick={onExitDemo}>{authUser ? 'Back to portfolio' : 'Back to site'}</button>
               <button className="btn btn-primary" onClick={onSignIn}>Use my portfolio</button>
             </>
           ) : (
@@ -2609,7 +2764,7 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
       </div>
 
       {/* Stats — hidden when Signals tab is active */}
-      {activeTab !== 'signals' && <div className="stats-grid">
+      {showPortfolioOverview && <div className="stats-grid">
         <StatCard
           label="Total Value"
           value={formatMoney(portfolio?.total_value)}
@@ -2634,10 +2789,10 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
       </div>}
 
       {/* Goal Progress Bar — hidden when Signals tab is active */}
-      {activeTab !== 'signals' && <GoalProgressBar ytdRealized={ytdRealized} unrealizedGain={portfolio?.total_gain} />}
+      {showPortfolioOverview && <GoalProgressBar ytdRealized={ytdRealized} unrealizedGain={portfolio?.total_gain} />}
 
       {/* Portfolio trend — hidden when Signals tab is active */}
-      {activeTab !== 'signals' && <OverallTrend30D positions={positions} priceHistory={priceHistory} dateRange={dateRange} onRangeChange={setDateRange} />}
+      {showPortfolioOverview && <OverallTrend30D positions={positions} priceHistory={priceHistory} dateRange={dateRange} onRangeChange={setDateRange} />}
 
       {/* Main content */}
       <div className={`content-grid${activeTab === 'signals' ? ' signals-full' : ''}`}>
@@ -2678,10 +2833,16 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
                 priceHistory={priceHistory}
                 dateRange={dateRange}
               />
+            ) : !hasAnyData ? (
+              <OnboardingPanel
+                onUpload={handleUpload}
+                onAdd={handleAddActive}
+                onViewDemo={onViewDemo}
+              />
             ) : (
               <div className="empty-state">
-                <h3>No positions yet</h3>
-                <p>Add a position manually or import a CSV from the panel on the right.</p>
+                <h3>No active positions</h3>
+                <p>Add a current holding manually or import a CSV when you are ready.</p>
               </div>
             )
           ) : activeTab === 'closed' ? (
@@ -2756,6 +2917,14 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
 
           {!demoMode && (
             <>
+              {/* Import CSV */}
+              <div className="panel">
+                <div className="panel-header">
+                  <span className="panel-title">Import CSV</span>
+                </div>
+                <UploadPanel onUpload={handleUpload} />
+              </div>
+
               {/* Cash balances */}
               <div className="panel">
                 <div className="panel-header">
@@ -2795,15 +2964,17 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
       </div>
 
       {/* Gain/loss timeline — full width below the main grid */}
-      <PnLTimeline closedPositions={closedPositions} />
+      {showPortfolioOverview && <PnLTimeline closedPositions={closedPositions} />}
 
       {/* Portfolio History Chart — growth vs S&P 500 */}
-      <PortfolioHistoryChart
-        currentValue={portfolio?.total_value}
-        historySeed={demoMode ? demoData.historyEntries : null}
-        snapshotsSeed={demoMode ? demoData.snapshots : null}
-        readOnly={demoMode}
-      />
+      {showPortfolioOverview && (
+        <PortfolioHistoryChart
+          currentValue={portfolio?.total_value}
+          historySeed={demoMode ? demoData.historyEntries : null}
+          snapshotsSeed={demoMode ? demoData.snapshots : null}
+          readOnly={demoMode}
+        />
+      )}
 
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>

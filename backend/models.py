@@ -7,6 +7,9 @@ from pydantic import BaseModel, Field
 class BrokerName(str, Enum):
     ROBINHOOD = "robinhood"
     ETRADE = "etrade"
+    SCHWAB = "schwab"
+    FIDELITY = "fidelity"
+    INTERACTIVE_BROKERS = "interactive_brokers"
     CSV = "csv"
 
 

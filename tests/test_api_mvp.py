@@ -85,6 +85,25 @@ class ApiMvpTest(unittest.TestCase):
         self.assertEqual([p["symbol"] for p in u2["positions"]], ["AAPL"])
         self.assertEqual([p.symbol for p in db.load_positions(user_id="fallback-user")], ["AAPL"])
 
+    def test_csv_import_accepts_expanded_broker_labels(self) -> None:
+        csv_body = (
+            "Symbol,Description,Quantity,Cost Basis Per Share,Market Price,Security Type\n"
+            "VTI,Vanguard Total Stock Market ETF,12,211.60,276.10,etf\n"
+        )
+
+        response = self.client.post(
+            "/api/import/csv?broker=schwab",
+            files={"file": ("schwab.csv", csv_body, "text/csv")},
+            headers=self._headers("u1"),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"imported": 1, "broker": "schwab"})
+
+        portfolio = self.client.get("/api/portfolio", headers=self._headers("u1")).json()
+        self.assertEqual(portfolio["positions"][0]["symbol"], "VTI")
+        self.assertEqual(portfolio["positions"][0]["broker"], "schwab")
+
     def test_trusted_proxy_user_header_scopes_token_mode_when_enabled(self) -> None:
         settings.TRUST_PROXY_USER_HEADER = True
 

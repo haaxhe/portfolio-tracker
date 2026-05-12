@@ -209,6 +209,9 @@
   }
   .broker-robinhood { background: var(--accent-green-bg); color: var(--accent-green); }
   .broker-etrade { background: var(--accent-blue-bg); color: var(--accent-blue); }
+  .broker-schwab { background: rgba(111,127,47,0.12); color: #6f7f2f; }
+  .broker-fidelity { background: rgba(138,95,15,0.12); color: #8a5f0f; }
+  .broker-interactive_brokers { background: rgba(95,112,146,0.14); color: #425575; }
   .broker-csv { background: rgba(185,130,23,0.12); color: var(--accent-amber); }
 
   /* Tabs */
@@ -332,7 +335,96 @@
     transition: width 0.4s ease;
   }
 
+  /* Onboarding */
+  .onboarding-panel {
+    padding: 24px;
+  }
+  .onboarding-intro {
+    max-width: 680px;
+    margin-bottom: 20px;
+  }
+  .onboarding-intro span {
+    display: inline-block;
+    margin-bottom: 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--accent-blue);
+  }
+  .onboarding-intro h3 {
+    font-size: 24px;
+    line-height: 1.15;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+  }
+  .onboarding-intro p {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .onboarding-choice-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .onboarding-choice {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+    padding: 16px;
+    min-height: 128px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+  }
+  .onboarding-choice:hover,
+  .onboarding-choice.active {
+    border-color: var(--accent-blue);
+    background: rgba(47,111,159,0.06);
+  }
+  .onboarding-choice:hover {
+    transform: translateY(-1px);
+  }
+  .onboarding-choice strong {
+    display: block;
+    margin-bottom: 8px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-primary);
+  }
+  .onboarding-choice span {
+    display: block;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+  .onboarding-workspace {
+    border-top: 1px solid var(--border);
+    padding-top: 18px;
+  }
+
   /* Upload zone */
+  .upload-panel {
+    padding-bottom: 1px;
+  }
+  .upload-controls {
+    padding: 12px 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .upload-controls .form-input {
+    flex: 1;
+    min-width: 0;
+  }
+  .upload-controls .btn {
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    font-size: 10px;
+  }
   .upload-zone {
     border: 2px dashed var(--border-accent);
     border-radius: 8px;
@@ -349,6 +441,13 @@
   .upload-zone p {
     font-family: var(--font-mono);
     font-size: 12px;
+    color: var(--text-muted);
+  }
+  .upload-zone span {
+    display: block;
+    margin-top: 8px;
+    font-size: 11px;
+    line-height: 1.4;
     color: var(--text-muted);
   }
   .upload-zone .upload-icon {
@@ -414,6 +513,7 @@
   @media (max-width: 1024px) {
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .content-grid { grid-template-columns: 1fr; }
+    .onboarding-choice-grid { grid-template-columns: 1fr; }
   }
   @media (max-width: 600px) {
     .app-container { padding: 16px; }
@@ -430,6 +530,16 @@
       min-width: 0;
     }
     .stats-grid { grid-template-columns: 1fr; }
+    .onboarding-panel { padding: 18px; }
+    .onboarding-intro h3 { font-size: 20px; }
+    .upload-controls {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .upload-zone {
+      margin: 14px;
+      padding: 22px 16px;
+    }
   }
 
   /* Goal Progress Bar */
