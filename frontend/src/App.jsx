@@ -319,7 +319,7 @@ function LandingDashboardPreview() {
                 <span className={position.unrealized_gain >= 0 ? 'positive' : 'negative'}>
                   {formatPct(position.unrealized_gain_pct)}
                 </span>
-                <span>{longLots} LT / {shortLots} ST</span>
+                <span>{longLots} long-term / {shortLots} short-term</span>
               </div>
             );
           })}
@@ -365,7 +365,7 @@ function LandingPage({ onSignIn, onViewDemo }) {
           <div className="landing-kicker">Tax-aware portfolio tracking</div>
           <h1>WealthBrief</h1>
           <p>
-            Track holdings, tax lots, realized P&amp;L, and portfolio history in one place before you make taxable trades.
+            Track holdings, tax lots, realized gains and losses, and portfolio history in one place before you make taxable trades.
           </p>
           <div className="landing-actions">
             <button className="btn btn-primary" onClick={onViewDemo}>Explore demo portfolio</button>
@@ -373,7 +373,7 @@ function LandingPage({ onSignIn, onViewDemo }) {
           </div>
           <div className="landing-proof-row">
             <span>CSV-first onboarding</span>
-            <span>Lot-level P&amp;L</span>
+            <span>Lot-level gains</span>
             <span>Exportable records</span>
           </div>
         </div>
@@ -392,8 +392,8 @@ function LandingPage({ onSignIn, onViewDemo }) {
           </div>
           <div className="landing-feature-card">
             <span>02</span>
-            <h3>Track realized P&amp;L cleanly</h3>
-            <p>Keep closed positions, YTD gains, and monthly P&amp;L in a dashboard that is easier to review than a broker export.</p>
+            <h3>Track realized gains clearly</h3>
+            <p>Keep closed positions, YTD gains, and monthly gains and losses in a dashboard that is easier to review than a broker export.</p>
           </div>
           <div className="landing-feature-card">
             <span>03</span>
@@ -488,11 +488,11 @@ function PositionSparklines({ closes, dates, avgCost, quantity, width = 88 }) {
     <div ref={ref} style={{display:'inline-flex', flexDirection:'column', gap:'5px', cursor:'crosshair', position:'relative'}}
       onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
       <div style={{display:'flex', alignItems:'center', gap:'5px'}}>
-        <span style={{fontSize:'8px', fontFamily:'var(--font-mono)', color:'var(--text-muted)', width:'20px', textAlign:'right', lineHeight:1}}>px</span>
+        <span style={{fontSize:'8px', fontFamily:'var(--font-mono)', color:'var(--text-muted)', width:'34px', textAlign:'right', lineHeight:1}}>price</span>
         <SparklineInner values={closes} width={width} height={H} color={priceColor} hover={hover?.idx} />
       </div>
       <div style={{display:'flex', alignItems:'center', gap:'5px'}}>
-        <span style={{fontSize:'8px', fontFamily:'var(--font-mono)', color:'var(--text-muted)', width:'20px', textAlign:'right', lineHeight:1}}>p&l</span>
+        <span style={{fontSize:'8px', fontFamily:'var(--font-mono)', color:'var(--text-muted)', width:'34px', textAlign:'right', lineHeight:1}}>gain</span>
         <SparklineInner values={pnlValues || closes.map(() => 0)} width={width} height={H}
           color={pnlColor} hover={hover?.idx} showZeroLine />
       </div>
@@ -512,7 +512,7 @@ function PositionSparklines({ closes, dates, avgCost, quantity, width = 88 }) {
             </div>
             {pnlValues && (
               <div style={{display:'flex', justifyContent:'space-between', gap:'18px'}}>
-                <span style={{color:'var(--text-muted)'}}>P&amp;L</span>
+                <span style={{color:'var(--text-muted)'}}>Gain/Loss</span>
                 <span style={{color:pnlColor, fontWeight:600}}>{formatMoney(pnlValues[hover.idx])}</span>
               </div>
             )}
@@ -728,7 +728,7 @@ function PositionsTable({ positions, taxLots, selectedKey, onSelectPosition, pri
           <SortTh label="Price" col="current_price" {...sp} style={{textAlign:'right'}} />
           <SortTh label="Value" col="market_value" {...sp} style={{textAlign:'right'}} />
           <SortTh label="Gain/Loss" col="unrealized_gain" {...sp} style={{textAlign:'right'}} />
-          <th>Tax Lots</th>
+          <th style={{ minWidth: '94px' }}>Tax Lots</th>
           <th style={{textAlign:'center'}}>30d Trends</th>
         </tr>
       </thead>
@@ -773,8 +773,8 @@ function PositionsTable({ positions, taxLots, selectedKey, onSelectPosition, pri
                   lots.length === 0
                     ? <button className="lot-add" onClick={e => { e.stopPropagation(); onSelectPosition(p); }}>+ add lot</button>
                     : <>
-                        {ltCount > 0 && <span className="lot-badge lot-long">{ltCount} LT</span>}
-                        {stCount > 0 && <span className="lot-badge lot-short">{stCount} ST</span>}
+                        {ltCount > 0 && <span className="lot-badge lot-long">{ltCount} long-term</span>}
+                        {stCount > 0 && <span className="lot-badge lot-short">{stCount} short-term</span>}
                       </>
                 )}
               </td>
@@ -1084,8 +1084,8 @@ function DemoTaxLotsPanel({ position, lots, onSignIn }) {
             <th>Date</th>
             <th>Shares</th>
             <th>Cost</th>
-            <th>Lot P&amp;L</th>
-            <th>Term</th>
+            <th>Lot Gain/Loss</th>
+            <th>Tax Term</th>
           </tr>
         </thead>
         <tbody>
@@ -1099,7 +1099,7 @@ function DemoTaxLotsPanel({ position, lots, onSignIn }) {
                 <td className={gain >= 0 ? 'positive' : 'negative'}>{formatMoney(gain)}</td>
                 <td>
                   <span className={`lot-badge ${lot.holding_period === 'long' ? 'lot-long' : 'lot-short'}`}>
-                    {lot.holding_period === 'long' ? 'LT' : `${daysUntilLongTerm(lot)}d`}
+                    {lot.holding_period === 'long' ? 'long-term' : 'short-term'}
                   </span>
                 </td>
               </tr>
@@ -1128,7 +1128,7 @@ function DemoTaxInsightPanel({ positions, taxLots, closedPositions, onSignIn }) 
   return (
     <div className="demo-insight-list">
       <div className="demo-insight-item">
-        <span>YTD realized P&amp;L</span>
+        <span>YTD realized gains</span>
         <strong className={realized >= 0 ? 'positive' : 'negative'}>{formatMoney(realized)}</strong>
       </div>
       {lossLots.slice(0, 1).map(lot => (
@@ -1263,8 +1263,8 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
         </div>
         {lots.length > 0 && (
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', textAlign: 'right' }}>
-            {ltShares > 0 && <><span className="lot-badge lot-long">{ltShares.toFixed(4).replace(/\.?0+$/, '')} LT</span></>}
-            {stShares > 0 && <><span className="lot-badge lot-short">{stShares.toFixed(4).replace(/\.?0+$/, '')} ST</span></>}
+            {ltShares > 0 && <><span className="lot-badge lot-long">{ltShares.toFixed(4).replace(/\.?0+$/, '')} long-term</span></>}
+            {stShares > 0 && <><span className="lot-badge lot-short">{stShares.toFixed(4).replace(/\.?0+$/, '')} short-term</span></>}
           </div>
         )}
       </div>
@@ -1278,7 +1278,7 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
                 <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'left', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Date</th>
                 <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'right', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Shares</th>
                 <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'right', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Cost</th>
-                <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Term</th>
+                <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tax Term</th>
                 <th style={{ padding: '7px 6px', borderBottom: '1px solid var(--border)' }}></th>
               </tr>
             </thead>
@@ -1316,7 +1316,7 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
                           <td style={{ ...cellTd, textAlign: 'right', color: 'var(--text-primary)' }}>{formatMoney(lot.cost_basis)}</td>
                           <td style={{ padding: '7px 10px', textAlign: 'center' }}>
                             <span className={`lot-badge ${lot.holding_period === 'long' ? 'lot-long' : 'lot-short'}`}>
-                              {lot.holding_period === 'long' ? 'LT' : 'ST'}
+                              {lot.holding_period === 'long' ? 'long-term' : 'short-term'}
                             </span>
                           </td>
                           <td style={{ padding: '7px 6px', textAlign: 'center', whiteSpace: 'nowrap' }}>
@@ -1357,7 +1357,7 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
                           </div>
                           {sellForm.quantity && sellForm.close_price && (
                             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', marginTop: '8px' }}>
-                              Realized:{' '}
+                              Realized gain/loss:{' '}
                               <span style={{
                                 color: ((parseFloat(sellForm.close_price) - lot.cost_basis) * parseFloat(sellForm.quantity)) >= 0 ? 'var(--accent-green)' : 'var(--accent-red)',
                                 fontWeight: 600,
@@ -1632,7 +1632,7 @@ function PnLTimeline({ closedPositions }) {
   return (
     <div className="panel" style={{ marginTop: '20px' }}>
       <div className="panel-header">
-        <span className="panel-title">P&amp;L Timeline</span>
+        <span className="panel-title">Gain/Loss Timeline</span>
         <div className="tab-bar">
           <button className={`tab-btn${view === 'year' ? ' active' : ''}`} onClick={() => setView('year')}>By Year</button>
           <button className={`tab-btn${view === 'month' ? ' active' : ''}`} onClick={() => setView('month')}>By Month</button>
@@ -1647,7 +1647,7 @@ function PnLTimeline({ closedPositions }) {
               <th>Trades</th>
               <th>Gains</th>
               <th>Losses</th>
-              <th>Net P&amp;L</th>
+              <th>Net Gain/Loss</th>
             </tr>
           </thead>
           <tbody>
@@ -1810,7 +1810,7 @@ function GoalProgressBar({ ytdRealized, unrealizedGain }) {
           <span className="goal-stat-value" style={{ color: unrealized >= 0 ? 'var(--accent-blue)' : 'var(--accent-red)' }}>{formatMoney(unrealized)}</span>
         </div>
         <div className="goal-stat">
-          <span className="goal-stat-label">Total P&amp;L</span>
+          <span className="goal-stat-label">Total Gain/Loss</span>
           <span className="goal-stat-value" style={{ color: total >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>{formatMoney(total)}</span>
         </div>
         <div className="goal-stat">
@@ -2615,13 +2615,13 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
           value={formatMoney(portfolio?.total_value)}
         />
         <StatCard
-          label="Unrealized P&L"
+          label="Unrealized Gain/Loss"
           value={formatMoney(portfolio?.total_gain)}
           subClass={portfolio?.total_gain >= 0 ? 'positive' : 'negative'}
           sub={formatPct(portfolio?.total_gain_pct)}
         />
         <StatCard
-          label="Realized P&L"
+          label="Realized Gain/Loss"
           value={formatMoney(totalRealized)}
           subClass={ytdRealized >= 0 ? 'positive' : 'negative'}
           sub={`${formatMoney(ytdRealized)} YTD`}
@@ -2794,7 +2794,7 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
         </div>}
       </div>
 
-      {/* P&L Timeline — full width below the main grid */}
+      {/* Gain/loss timeline — full width below the main grid */}
       <PnLTimeline closedPositions={closedPositions} />
 
       {/* Portfolio History Chart — growth vs S&P 500 */}
