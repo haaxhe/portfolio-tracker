@@ -1228,6 +1228,111 @@ function daysUntilLongTerm(lot) {
   return Math.max(0, Math.ceil((longTermDate - new Date()) / 86400000));
 }
 
+function longTermDateForLot(lot) {
+  const acquired = new Date(`${lot.acquired_at}T12:00:00Z`);
+  acquired.setUTCDate(acquired.getUTCDate() + 365);
+  return acquired.toISOString().slice(0, 10);
+}
+
+function formatDateShort(dateString) {
+  if (!dateString) return '—';
+  const d = new Date(`${dateString}T12:00:00Z`);
+  if (isNaN(d.getTime())) return dateString;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function enrichTaxLotsForPositions(positions, taxLots) {
+  return Object.values(taxLots).flat().map(lot => {
+    const position = positions.find(p => p.symbol === lot.symbol && p.broker === lot.broker);
+    const currentPrice = position?.current_price || 0;
+    const unrealizedGain = position ? (currentPrice - lot.cost_basis) * lot.quantity : 0;
+    return {
+      ...lot,
+      position,
+      currentPrice,
+      unrealizedGain,
+      daysToLong: daysUntilLongTerm(lot),
+      longTermDate: longTermDateForLot(lot),
+    };
+  });
+}
+
+function TaxWedgePanel({ positions, taxLots, closedPositions, onSelectPosition, onSignIn, demoMode = false }) {
+  const lots = enrichTaxLotsForPositions(positions, taxLots);
+  const currentYear = new Date().getFullYear().toString();
+  const ytdRealized = closedPositions
+    .filter(p => p.closed_at?.startsWith(currentYear))
+    .reduce((sum, p) => sum + p.realized_gain, 0);
+  const shortLots = lots.filter(lot => lot.holding_period === 'short');
+  const longLots = lots.filter(lot => lot.holding_period === 'long');
+  const shortUnrealized = shortLots.reduce((sum, lot) => sum + lot.unrealizedGain, 0);
+  const longUnrealized = longLots.reduce((sum, lot) => sum + lot.unrealizedGain, 0);
+  const lossCandidates = lots
+    .filter(lot => lot.unrealizedGain < 0)
+    .sort((a, b) => a.unrealizedGain - b.unrealizedGain)
+    .slice(0, 3);
+  const upcomingLots = shortLots
+    .filter(lot => lot.daysToLong > 0)
+    .sort((a, b) => a.daysToLong - b.daysToLong)
+    .slice(0, 3);
+
+  const selectLot = (lot) => {
+    if (lot.position && onSelectPosition) onSelectPosition(lot.position);
+  };
+
+  return (
+    <div className="tax-wedge-panel">
+      <div className="tax-wedge-grid">
+        <div>
+          <span>Short-term lots</span>
+          <strong>{shortLots.length}</strong>
+          <em className={shortUnrealized >= 0 ? 'positive' : 'negative'}>{formatMoney(shortUnrealized)}</em>
+        </div>
+        <div>
+          <span>Long-term lots</span>
+          <strong>{longLots.length}</strong>
+          <em className={longUnrealized >= 0 ? 'positive' : 'negative'}>{formatMoney(longUnrealized)}</em>
+        </div>
+        <div>
+          <span>YTD realized gains</span>
+          <strong className={ytdRealized >= 0 ? 'positive' : 'negative'}>{formatMoney(ytdRealized)}</strong>
+          <em>{currentYear}</em>
+        </div>
+      </div>
+
+      <div className="tax-wedge-section">
+        <div className="tax-wedge-heading">Tax-loss candidates</div>
+        {lossCandidates.length ? lossCandidates.map(lot => (
+          <button type="button" className="tax-wedge-row" key={`loss-${lot.id}`} onClick={() => selectLot(lot)}>
+            <span>{lot.symbol}</span>
+            <strong className="negative">{formatMoney(lot.unrealizedGain)}</strong>
+            <em>{lot.holding_period === 'long' ? 'long-term' : 'short-term'} lot</em>
+          </button>
+        )) : (
+          <div className="tax-wedge-empty">No open lots currently show an unrealized loss.</div>
+        )}
+      </div>
+
+      <div className="tax-wedge-section">
+        <div className="tax-wedge-heading">Upcoming long-term dates</div>
+        {upcomingLots.length ? upcomingLots.map(lot => (
+          <button type="button" className="tax-wedge-row" key={`soon-${lot.id}`} onClick={() => selectLot(lot)}>
+            <span>{lot.symbol}</span>
+            <strong>{lot.daysToLong} days</strong>
+            <em>{formatDateShort(lot.longTermDate)}</em>
+          </button>
+        )) : (
+          <div className="tax-wedge-empty">No short-term lots are waiting on a long-term date.</div>
+        )}
+      </div>
+
+      {demoMode && (
+        <button className="btn demo-panel-cta" onClick={onSignIn}>Use with my portfolio</button>
+      )}
+    </div>
+  );
+}
+
 function DemoTaxLotsPanel({ position, lots, onSignIn }) {
   if (!position) {
     return (
@@ -1255,8 +1360,9 @@ function DemoTaxLotsPanel({ position, lots, onSignIn }) {
             <th>Date</th>
             <th>Shares</th>
             <th>Cost</th>
-            <th>Lot Gain/Loss</th>
+            <th>Unrealized</th>
             <th>Tax Term</th>
+            <th>Long-term date</th>
           </tr>
         </thead>
         <tbody>
@@ -1273,48 +1379,13 @@ function DemoTaxLotsPanel({ position, lots, onSignIn }) {
                     {lot.holding_period === 'long' ? 'long-term' : 'short-term'}
                   </span>
                 </td>
+                <td>{lot.holding_period === 'long' ? 'Qualified' : `${formatDateShort(longTermDateForLot(lot))} (${daysUntilLongTerm(lot)}d)`}</td>
               </tr>
             );
           })}
         </tbody>
       </table>
       <button className="btn btn-primary demo-panel-cta" onClick={onSignIn}>Track my real lots</button>
-    </div>
-  );
-}
-
-function DemoTaxInsightPanel({ positions, taxLots, closedPositions, onSignIn }) {
-  const enrichedLots = Object.values(taxLots).flat().map(lot => {
-    const position = positions.find(p => p.symbol === lot.symbol && p.broker === lot.broker);
-    const gain = position ? (position.current_price - lot.cost_basis) * lot.quantity : 0;
-    return { ...lot, position, gain, daysToLong: daysUntilLongTerm(lot) };
-  });
-  const lossLots = enrichedLots.filter(lot => lot.gain < 0).sort((a, b) => a.gain - b.gain);
-  const upcomingLots = enrichedLots
-    .filter(lot => lot.holding_period === 'short' && lot.daysToLong > 0)
-    .sort((a, b) => a.daysToLong - b.daysToLong)
-    .slice(0, 2);
-  const realized = closedPositions.reduce((sum, p) => sum + p.realized_gain, 0);
-
-  return (
-    <div className="demo-insight-list">
-      <div className="demo-insight-item">
-        <span>YTD realized gains</span>
-        <strong className={realized >= 0 ? 'positive' : 'negative'}>{formatMoney(realized)}</strong>
-      </div>
-      {lossLots.slice(0, 1).map(lot => (
-        <div className="demo-insight-item" key={`loss-${lot.id}`}>
-          <span>Harvest watch</span>
-          <strong>{lot.symbol} {formatMoney(lot.gain)}</strong>
-        </div>
-      ))}
-      {upcomingLots.map(lot => (
-        <div className="demo-insight-item" key={`soon-${lot.id}`}>
-          <span>Long-term window</span>
-          <strong>{lot.symbol} in {lot.daysToLong} days</strong>
-        </div>
-      ))}
-      <button className="btn demo-panel-cta" onClick={onSignIn}>Use with my portfolio</button>
     </div>
   );
 }
@@ -1423,6 +1494,22 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
   const totalShares = lots.reduce((s, l) => s + l.quantity, 0);
   const ltShares = lots.filter(l => l.holding_period === 'long').reduce((s, l) => s + l.quantity, 0);
   const stShares = lots.filter(l => l.holding_period === 'short').reduce((s, l) => s + l.quantity, 0);
+  const lotRows = lots.map(lot => {
+    const unrealizedGain = (position.current_price - lot.cost_basis) * lot.quantity;
+    return {
+      ...lot,
+      unrealizedGain,
+      daysToLong: daysUntilLongTerm(lot),
+      longTermDate: longTermDateForLot(lot),
+    };
+  });
+  const shortUnrealized = lotRows
+    .filter(lot => lot.holding_period === 'short')
+    .reduce((sum, lot) => sum + lot.unrealizedGain, 0);
+  const longUnrealized = lotRows
+    .filter(lot => lot.holding_period === 'long')
+    .reduce((sum, lot) => sum + lot.unrealizedGain, 0);
+  const selectedLossCandidates = lotRows.filter(lot => lot.unrealizedGain < 0).length;
 
   return (
     <div style={{ padding: '12px 16px' }}>
@@ -1440,21 +1527,40 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
         )}
       </div>
 
+      {lots.length > 0 && (
+        <div className="lot-tax-summary">
+          <div>
+            <span>Short-term unrealized</span>
+            <strong className={shortUnrealized >= 0 ? 'positive' : 'negative'}>{formatMoney(shortUnrealized)}</strong>
+          </div>
+          <div>
+            <span>Long-term unrealized</span>
+            <strong className={longUnrealized >= 0 ? 'positive' : 'negative'}>{formatMoney(longUnrealized)}</strong>
+          </div>
+          <div>
+            <span>Loss candidates</span>
+            <strong>{selectedLossCandidates}</strong>
+          </div>
+        </div>
+      )}
+
       {/* Existing lots */}
       {lots.length > 0 && (
-        <div style={{ marginBottom: '14px', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden' }}>
+        <div style={{ marginBottom: '14px', border: '1px solid var(--border)', borderRadius: '6px', overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
                 <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'left', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Date</th>
                 <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'right', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Shares</th>
                 <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'right', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Cost</th>
+                <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'right', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Unrealized</th>
                 <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tax Term</th>
+                <th style={{ fontSize: '9px', padding: '7px 10px', textAlign: 'left', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderBottom: '1px solid var(--border)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Long-term date</th>
                 <th style={{ padding: '7px 6px', borderBottom: '1px solid var(--border)' }}></th>
               </tr>
             </thead>
             <tbody>
-              {lots.map(lot => {
+              {lotRows.map(lot => {
                 const isEditing = editingId === lot.id;
                 const isSelling = sellingId === lot.id;
                 const cellTd = { fontFamily: 'var(--font-mono)', fontSize: '11px', padding: '7px 10px' };
@@ -1474,7 +1580,9 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
                           <td style={{ ...cellTd, textAlign: 'right' }}>
                             <input type="number" min="0" step="any" value={editForm.cost_basis} onChange={e => setEdit('cost_basis', e.target.value)} style={{ ...inlineInput, textAlign: 'right' }} />
                           </td>
+                          <td style={{ padding: '7px 10px', textAlign: 'right', color: 'var(--text-muted)', fontSize: '10px' }}>—</td>
                           <td style={{ padding: '7px 10px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '10px' }}>—</td>
+                          <td style={{ padding: '7px 10px', color: 'var(--text-muted)', fontSize: '10px' }}>—</td>
                           <td style={{ padding: '7px 6px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                             <button onClick={() => handleSaveEdit(lot.id)} disabled={saving} title="Save" style={{ ...iconBtn, color: 'var(--accent-green)' }}>✓</button>
                             <button onClick={() => setEditingId(null)} title="Cancel" style={iconBtn}>×</button>
@@ -1485,10 +1593,14 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
                           <td style={{ ...cellTd, color: 'var(--text-secondary)' }}>{lot.acquired_at}</td>
                           <td style={{ ...cellTd, textAlign: 'right', color: 'var(--text-primary)' }}>{lot.quantity}</td>
                           <td style={{ ...cellTd, textAlign: 'right', color: 'var(--text-primary)' }}>{formatMoney(lot.cost_basis)}</td>
+                          <td style={{ ...cellTd, textAlign: 'right' }} className={lot.unrealizedGain >= 0 ? 'positive' : 'negative'}>{formatMoney(lot.unrealizedGain)}</td>
                           <td style={{ padding: '7px 10px', textAlign: 'center' }}>
                             <span className={`lot-badge ${lot.holding_period === 'long' ? 'lot-long' : 'lot-short'}`}>
                               {lot.holding_period === 'long' ? 'long-term' : 'short-term'}
                             </span>
+                          </td>
+                          <td style={{ ...cellTd, color: 'var(--text-secondary)', minWidth: '116px' }}>
+                            {lot.holding_period === 'long' ? 'Qualified' : `${formatDateShort(lot.longTermDate)} (${lot.daysToLong}d)`}
                           </td>
                           <td style={{ padding: '7px 6px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                             <button onClick={() => startSell(lot)} title="Sell from this lot" style={iconBtn}>$</button>
@@ -1500,7 +1612,7 @@ function TaxLotsPanel({ position, lots, onRefresh }) {
                     </tr>
                     {isSelling && (
                       <tr style={{ borderBottom: '1px solid rgba(153,174,164,0.32)', background: 'rgba(15,138,95,0.045)' }}>
-                        <td colSpan={5} style={{ padding: '10px 12px' }}>
+                        <td colSpan={7} style={{ padding: '10px 12px' }}>
                           <div style={{ fontSize: '10px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
                             Sell from lot · acquired {lot.acquired_at} · {lot.quantity} avail
                           </div>
@@ -2951,16 +3063,18 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
             )}
           </div>
 
-          {demoMode && (
+          {hasData && (
             <div className="panel">
               <div className="panel-header">
-                <span className="panel-title">Tax Watch</span>
+                <span className="panel-title">Tax Wedge</span>
               </div>
-              <DemoTaxInsightPanel
+              <TaxWedgePanel
                 positions={positions}
                 taxLots={taxLots}
                 closedPositions={closedPositions}
+                onSelectPosition={setSelectedPosition}
                 onSignIn={onSignIn}
+                demoMode={demoMode}
               />
             </div>
           )}
