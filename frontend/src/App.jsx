@@ -90,6 +90,15 @@ function AuthGate() {
     });
   };
 
+  const sendMagicLink = async (email) => {
+    if (!state.client || !email) return { error: 'Email sign-in is not configured.' };
+    const { error } = await state.client.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin },
+    });
+    return { error: error?.message || null };
+  };
+
   const signOut = async () => {
     if (state.client) await state.client.auth.signOut();
     syncSession(null);
@@ -110,7 +119,7 @@ function AuthGate() {
         demoMode
         demoData={DEMO_DATA}
         onExitDemo={() => setPublicView('landing')}
-        onSignIn={canOpenPortfolio ? () => setPublicView('landing') : signIn}
+        onSignIn={canOpenPortfolio ? () => setPublicView('landing') : () => setPublicView('signin')}
       />
     );
   }
@@ -120,15 +129,26 @@ function AuthGate() {
         page={publicView}
         onBack={() => setPublicView(state.config?.auth_mode === 'supabase' && !state.session ? 'landing' : 'app')}
         onSelectPage={setPublicView}
-        onSignIn={signIn}
+        onSignIn={() => setPublicView('signin')}
         isAuthed={!!state.session || state.config?.auth_mode !== 'supabase'}
+      />
+    );
+  }
+  if (publicView === 'signin') {
+    return (
+      <SignInPage
+        onBack={() => setPublicView('landing')}
+        onContinueGoogle={signIn}
+        onSendMagicLink={sendMagicLink}
+        onViewDemo={() => setPublicView('demo')}
+        onSelectTrustPage={setPublicView}
       />
     );
   }
   if (state.config?.auth_mode === 'supabase' && !state.session) {
     return (
       <LandingPage
-        onSignIn={signIn}
+        onSignIn={() => setPublicView('signin')}
         onViewDemo={() => setPublicView('demo')}
         onSelectTrustPage={setPublicView}
       />
@@ -382,6 +402,100 @@ function TrustPage({ page, onBack, onSelectPage, onSignIn, isAuthed }) {
   );
 }
 
+function SignInPage({ onBack, onContinueGoogle, onSendMagicLink, onViewDemo, onSelectTrustPage }) {
+  const [email, setEmail] = React.useState('');
+  const [status, setStatus] = React.useState(null);
+  const [sending, setSending] = React.useState(false);
+
+  const submitMagicLink = async (e) => {
+    e.preventDefault();
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) return;
+
+    setSending(true);
+    setStatus(null);
+    try {
+      const result = await onSendMagicLink(trimmedEmail);
+      if (result?.error) {
+        setStatus({ type: 'error', message: result.error });
+      } else {
+        setStatus({ type: 'success', message: 'Check your email for a secure sign-in link.' });
+      }
+    } catch {
+      setStatus({ type: 'error', message: 'Unable to send a sign-in link right now.' });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <main className="signin-page">
+      <nav className="landing-nav">
+        <button type="button" className="landing-brand" onClick={onBack}><span>▸</span> WealthBrief</button>
+        <div className="landing-nav-actions">
+          <button className="btn" onClick={onViewDemo}>Try demo</button>
+          <button className="btn" onClick={onBack}>Back to site</button>
+        </div>
+      </nav>
+
+      <section className="signin-shell">
+        <div className="signin-copy">
+          <div className="landing-kicker">Start free</div>
+          <h1>Build your tax-aware portfolio view in minutes.</h1>
+          <p>
+            Explore the sample portfolio first, then import CSV records or add positions manually when you are ready to track your real account.
+          </p>
+          <div className="signin-proof-list">
+            <span>No card required</span>
+            <span>Demo before signup</span>
+            <span>Export or delete your data</span>
+          </div>
+        </div>
+
+        <div className="signin-card" aria-label="Create your WealthBrief account">
+          <h2>Create your WealthBrief account</h2>
+          <p>Use Google or get a secure email sign-in link. You can open the demo without creating an account.</p>
+
+          <button className="btn btn-primary signin-google" type="button" onClick={onContinueGoogle}>
+            Continue with Google
+          </button>
+
+          <div className="signin-divider"><span>or</span></div>
+
+          <form className="signin-email-form" onSubmit={submitMagicLink}>
+            <label className="form-label" htmlFor="signin-email">Email</label>
+            <input
+              id="signin-email"
+              className="form-input"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+            />
+            <button className="btn" type="submit" disabled={sending}>
+              {sending ? 'Sending...' : 'Email me a magic link'}
+            </button>
+          </form>
+
+          {status && <div className={`signin-status ${status.type}`}>{status.message}</div>}
+
+          <button className="signin-demo-link" type="button" onClick={onViewDemo}>
+            Explore the sample portfolio without signing up
+          </button>
+
+          <p className="signin-legal">
+            By continuing, you agree to{' '}
+            <button type="button" onClick={() => onSelectTrustPage('terms')}>Terms</button>
+            {' '}and{' '}
+            <button type="button" onClick={() => onSelectTrustPage('privacy')}>Privacy Policy</button>.
+          </p>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function isoDaysAgo(days) {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -605,7 +719,7 @@ function LandingPage({ onSignIn, onViewDemo, onSelectTrustPage }) {
         </button>
         <div className="landing-nav-actions">
           <button className="btn" onClick={onViewDemo}>View demo</button>
-          <button className="btn btn-primary" onClick={onSignIn}>Continue with Google</button>
+          <button className="btn btn-primary" onClick={onSignIn}>Start free</button>
         </div>
       </nav>
 
@@ -621,7 +735,7 @@ function LandingPage({ onSignIn, onViewDemo, onSelectTrustPage }) {
           </p>
           <div className="landing-actions">
             <button className="btn btn-primary" onClick={onViewDemo}>Explore demo portfolio</button>
-            <button className="btn" onClick={onSignIn}>Sign in with Google</button>
+            <button className="btn" onClick={onSignIn}>Create free account</button>
           </div>
           <div className="landing-proof-row">
             <span>CSV-first onboarding</span>

@@ -1224,6 +1224,175 @@
     flex-wrap: wrap;
   }
 
+  .signin-page {
+    min-height: 100vh;
+    background:
+      linear-gradient(180deg, #f7fbf8 0%, #f3f7fb 56%, #ffffff 100%);
+    color: var(--text-primary);
+    overflow-x: hidden;
+  }
+  .signin-shell {
+    position: relative;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 92px 28px 104px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 430px;
+    gap: 58px;
+    align-items: center;
+  }
+  .signin-shell::before {
+    content: '';
+    position: absolute;
+    inset: 26px -120px 32px;
+    background:
+      linear-gradient(rgba(47,111,159,0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(15,138,95,0.055) 1px, transparent 1px);
+    background-size: 48px 48px;
+    opacity: 0.58;
+    pointer-events: none;
+  }
+  .signin-copy,
+  .signin-card {
+    position: relative;
+    z-index: 1;
+  }
+  .signin-copy h1 {
+    max-width: 660px;
+    font-size: 56px;
+    line-height: 1.02;
+    letter-spacing: 0;
+    margin-bottom: 20px;
+  }
+  .signin-copy p {
+    max-width: 570px;
+    font-size: 19px;
+    line-height: 1.52;
+    color: var(--text-secondary);
+  }
+  .signin-proof-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 22px;
+    margin-top: 26px;
+  }
+  .signin-proof-list span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .signin-proof-list span::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    flex: 0 0 auto;
+  }
+  .signin-card {
+    border: 1px solid var(--border-accent);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.97);
+    box-shadow: 0 24px 70px rgba(31, 55, 48, 0.16);
+    padding: 30px;
+  }
+  .signin-card h2 {
+    font-size: 22px;
+    letter-spacing: 0;
+    margin-bottom: 8px;
+  }
+  .signin-card p {
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  .signin-google,
+  .signin-email-form .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .signin-google {
+    margin-top: 20px;
+    padding: 11px 16px;
+  }
+  .signin-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 20px 0 18px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  .signin-divider::before,
+  .signin-divider::after {
+    content: '';
+    height: 1px;
+    background: var(--border);
+    flex: 1;
+  }
+  .signin-email-form {
+    display: grid;
+    gap: 9px;
+  }
+  .signin-email-form .btn {
+    margin-top: 6px;
+  }
+  .signin-email-form .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.68;
+  }
+  .signin-status {
+    margin-top: 14px;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .signin-status.success {
+    background: var(--accent-green-bg);
+    color: var(--accent-green);
+  }
+  .signin-status.error {
+    background: var(--accent-red-bg);
+    color: var(--accent-red);
+  }
+  .signin-demo-link {
+    width: 100%;
+    margin-top: 16px;
+    border: 0;
+    background: none;
+    color: var(--accent-blue);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .signin-demo-link:hover {
+    color: var(--text-primary);
+  }
+  .signin-legal {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .signin-legal button {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: var(--accent-blue);
+    cursor: pointer;
+    font: inherit;
+  }
+  .signin-legal button:hover {
+    color: var(--text-primary);
+  }
+
   .trust-page {
     min-height: 100vh;
     background:
@@ -1402,6 +1571,23 @@
     }
     .landing-demo-band .btn {
       width: 100%;
+    }
+    .signin-shell {
+      grid-template-columns: 1fr;
+      gap: 34px;
+      padding: 54px 16px 72px;
+    }
+    .signin-shell::before {
+      inset: 12px -80px 0;
+    }
+    .signin-copy h1 {
+      font-size: 42px;
+    }
+    .signin-copy p {
+      font-size: 17px;
+    }
+    .signin-card {
+      padding: 22px;
     }
     .landing-footer {
       padding: 0 16px 28px;
