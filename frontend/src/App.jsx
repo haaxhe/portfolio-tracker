@@ -6,6 +6,7 @@ import './styles.css';
 const API = '';
 const API_AUTH_TOKEN_KEY = 'portfolio_tracker_api_token';
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const SUPPORT_EMAIL = 'support@getwealthbrief.com';
 const originalFetch = window.fetch.bind(window);
 let apiAuthToken = null;
 
@@ -113,11 +114,23 @@ function AuthGate() {
       />
     );
   }
+  if (['privacy', 'terms', 'security', 'support'].includes(publicView)) {
+    return (
+      <TrustPage
+        page={publicView}
+        onBack={() => setPublicView(state.config?.auth_mode === 'supabase' && !state.session ? 'landing' : 'app')}
+        onSelectPage={setPublicView}
+        onSignIn={signIn}
+        isAuthed={!!state.session || state.config?.auth_mode !== 'supabase'}
+      />
+    );
+  }
   if (state.config?.auth_mode === 'supabase' && !state.session) {
     return (
       <LandingPage
         onSignIn={signIn}
         onViewDemo={() => setPublicView('demo')}
+        onSelectTrustPage={setPublicView}
       />
     );
   }
@@ -126,6 +139,7 @@ function AuthGate() {
       authUser={state.session?.user || null}
       onSignOut={state.client ? signOut : null}
       onViewDemo={() => setPublicView('demo')}
+      onSelectTrustPage={setPublicView}
     />
   );
 }
@@ -236,6 +250,136 @@ function downloadCsvTemplate(broker) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+const TRUST_CONTENT = {
+  privacy: {
+    title: 'Privacy Policy',
+    kicker: 'Trust basics',
+    updated: 'May 12, 2026',
+    sections: [
+      {
+        heading: 'What WealthBrief stores',
+        body: 'WealthBrief stores the portfolio records you add or import, including positions, tax lots, closed trades, portfolio history entries, and app-generated analytics. Authentication is handled by the configured login provider.',
+      },
+      {
+        heading: 'How data is used',
+        body: 'Your data is used to operate the dashboard, calculate portfolio and tax-lot views, generate exports, and maintain account security. WealthBrief is for tracking and organization only, not financial, tax, or investment advice.',
+      },
+      {
+        heading: 'Exports and deletion',
+        body: 'Signed-in users can export their WealthBrief app data from the dashboard. They can also delete stored WealthBrief app data from the Account & Data panel.',
+      },
+      {
+        heading: 'Support',
+        body: `Questions or deletion requests can be sent to ${SUPPORT_EMAIL}.`,
+      },
+    ],
+  },
+  terms: {
+    title: 'Terms of Use',
+    kicker: 'Use terms',
+    updated: 'May 12, 2026',
+    sections: [
+      {
+        heading: 'Use of WealthBrief',
+        body: 'WealthBrief is provided as a portfolio organization tool. You are responsible for checking imported data, broker exports, tax lots, prices, and any decisions made from the dashboard.',
+      },
+      {
+        heading: 'No advice',
+        body: 'WealthBrief does not provide financial, tax, legal, or investment advice. Always consult qualified professionals for tax and investment decisions.',
+      },
+      {
+        heading: 'Availability and data sources',
+        body: 'Market data and integrations may be delayed, incomplete, unavailable, or changed by upstream providers. WealthBrief may change or discontinue features as the product evolves.',
+      },
+      {
+        heading: 'Account data',
+        body: 'You can export or delete WealthBrief app data from the dashboard. Deleting app data does not necessarily remove an identity held by an external authentication provider.',
+      },
+    ],
+  },
+  security: {
+    title: 'Security',
+    kicker: 'Security posture',
+    updated: 'May 12, 2026',
+    sections: [
+      {
+        heading: 'Authentication',
+        body: 'Production login is designed around Supabase authentication. API requests are scoped to the authenticated user and protected by bearer-token checks.',
+      },
+      {
+        heading: 'Transport and browser protections',
+        body: 'Production should be served over HTTPS. The backend applies security headers, including content security policy, frame restrictions, and related browser protections.',
+      },
+      {
+        heading: 'Data isolation',
+        body: 'Portfolio records, tax lots, closed trades, history, and signals are stored with a user identifier and loaded through user-scoped queries.',
+      },
+      {
+        heading: 'Responsible reporting',
+        body: `Please report suspected security issues to ${SUPPORT_EMAIL}. Include steps to reproduce and avoid sharing sensitive account data in email.`,
+      },
+    ],
+  },
+  support: {
+    title: 'Support',
+    kicker: 'Contact',
+    updated: 'May 12, 2026',
+    sections: [
+      {
+        heading: 'Support email',
+        body: `Contact ${SUPPORT_EMAIL} for product support, privacy questions, data export issues, or account deletion requests.`,
+      },
+      {
+        heading: 'Account deletion',
+        body: 'Signed-in users can delete WealthBrief app data from the dashboard Account & Data panel. If you need help with authentication-provider identity deletion, email support.',
+      },
+    ],
+  },
+};
+
+function TrustLinks({ onSelectPage }) {
+  return (
+    <span className="trust-links">
+      <button type="button" onClick={() => onSelectPage('privacy')}>Privacy</button>
+      <button type="button" onClick={() => onSelectPage('terms')}>Terms</button>
+      <button type="button" onClick={() => onSelectPage('security')}>Security</button>
+      <button type="button" onClick={() => onSelectPage('support')}>Support</button>
+    </span>
+  );
+}
+
+function TrustPage({ page, onBack, onSelectPage, onSignIn, isAuthed }) {
+  const content = TRUST_CONTENT[page] || TRUST_CONTENT.privacy;
+  return (
+    <main className="trust-page">
+      <nav className="landing-nav">
+        <button type="button" className="landing-brand" onClick={onBack}><span>▸</span> WealthBrief</button>
+        <div className="landing-nav-actions">
+          <button className="btn" onClick={onBack}>{isAuthed ? 'Back to dashboard' : 'Back to site'}</button>
+          {!isAuthed && <button className="btn btn-primary" onClick={onSignIn}>Sign in</button>}
+        </div>
+      </nav>
+      <section className="trust-document">
+        <div className="landing-kicker">{content.kicker}</div>
+        <h1>{content.title}</h1>
+        <p className="trust-updated">Last updated {content.updated}</p>
+        <div className="trust-section-list">
+          {content.sections.map(section => (
+            <section className="trust-section" key={section.heading}>
+              <h2>{section.heading}</h2>
+              <p>{section.body}</p>
+            </section>
+          ))}
+        </div>
+        <div className="trust-document-footer">
+          <TrustLinks onSelectPage={onSelectPage} />
+          <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+        </div>
+      </section>
+    </main>
+  );
 }
 
 function isoDaysAgo(days) {
@@ -452,7 +596,7 @@ function LandingDashboardPreview() {
   );
 }
 
-function LandingPage({ onSignIn, onViewDemo }) {
+function LandingPage({ onSignIn, onViewDemo, onSelectTrustPage }) {
   return (
     <main className="landing-page">
       <nav className="landing-nav">
@@ -522,6 +666,8 @@ function LandingPage({ onSignIn, onViewDemo }) {
 
       <footer className="landing-footer">
         <span>WealthBrief is for tracking and organization only. Not financial, tax, or investment advice.</span>
+        <TrustLinks onSelectPage={onSelectTrustPage} />
+        <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
       </footer>
     </main>
   );
@@ -1868,6 +2014,27 @@ function AddClosedPositionForm({ onAdd }) {
   );
 }
 
+function AccountDataPanel({ onExportAll, onDeleteAccountData, onSelectTrustPage }) {
+  return (
+    <div className="account-data-panel">
+      <div className="account-action-list">
+        <button type="button" className="account-action" onClick={onExportAll}>
+          <strong>Export all data</strong>
+          <span>Download positions, lots, closed trades, history, and signals as JSON.</span>
+        </button>
+        <button type="button" className="account-action danger" onClick={onDeleteAccountData}>
+          <strong>Delete account data</strong>
+          <span>Remove WealthBrief app data for this account.</span>
+        </button>
+      </div>
+      <div className="account-trust-links">
+        <TrustLinks onSelectPage={onSelectTrustPage} />
+        <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+      </div>
+    </div>
+  );
+}
+
 function PnLTimeline({ closedPositions }) {
   const [view, setView] = React.useState('year');
   const [expanded, setExpanded] = React.useState(new Set());
@@ -2686,7 +2853,7 @@ function SignalsView({ portfolioSymbols = [] }) {
   );
 }
 
-function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDemo = null, onSignIn = null, onViewDemo = null }) {
+function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDemo = null, onSignIn = null, onViewDemo = null, onSelectTrustPage = () => {} }) {
   const [portfolio, setPortfolio] = useState(demoMode ? demoData.portfolio : null);
   const [closedPositions, setClosedPositions] = useState(demoMode ? demoData.closedPositions : []);
   const [taxLots, setTaxLots] = useState(demoMode ? demoData.taxLots : {});        // key: "SYMBOL-broker" → lot[]
@@ -2850,6 +3017,41 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
       return;
     }
     window.open(`${API}/api/export/csv`, '_blank');
+  };
+
+  const handleExportAll = () => {
+    if (demoMode) {
+      setToast({ message: 'Sign in to export your own records', type: 'success' });
+      return;
+    }
+    window.open(`${API}/api/export/all`, '_blank');
+  };
+
+  const handleDeleteAccountData = async () => {
+    if (demoMode) {
+      setToast({ message: 'Demo data is read-only', type: 'success' });
+      return;
+    }
+    const confirmed = window.confirm(
+      'Delete all WealthBrief app data for this account? This removes positions, tax lots, closed trades, history, and signals. This cannot be undone.'
+    );
+    if (!confirmed) return;
+    try {
+      const res = await fetch(`${API}/api/account/data`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setToast({ message: err.detail || 'Delete failed', type: 'error' });
+        return;
+      }
+      setPortfolio({ positions: [], total_value: 0, total_cost: 0, total_gain: 0, total_gain_pct: 0, broker_breakdown: {} });
+      setClosedPositions([]);
+      setTaxLots({});
+      setPriceHistory({});
+      setSelectedPosition(null);
+      setToast({ message: 'Account data deleted', type: 'success' });
+    } catch {
+      setToast({ message: 'Delete failed', type: 'error' });
+    }
   };
 
   const handleDeleteClosed = async (id) => {
@@ -3094,6 +3296,18 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
 
           {!demoMode && (
             <>
+              {/* Account and trust */}
+              <div className="panel">
+                <div className="panel-header">
+                  <span className="panel-title">Account & Data</span>
+                </div>
+                <AccountDataPanel
+                  onExportAll={handleExportAll}
+                  onDeleteAccountData={handleDeleteAccountData}
+                  onSelectTrustPage={onSelectTrustPage}
+                />
+              </div>
+
               {/* Import CSV */}
               <div className="panel">
                 <div className="panel-header">

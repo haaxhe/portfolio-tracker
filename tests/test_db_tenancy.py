@@ -91,6 +91,20 @@ class DbTenancyTest(unittest.TestCase):
         self.assertEqual(cached[("AAPL", "stock")]["current_price"], 188.25)
         self.assertEqual(cached[("AAPL", "stock")]["history"]["closes"], [188.25])
 
+    def test_export_and_delete_user_data_are_scoped(self) -> None:
+        db.upsert_position(self._position("AAPL"), user_id="u1")
+        db.upsert_position(self._position("MSFT"), user_id="u2")
+        db.save_portfolio_history_entry("2026-01-01", 1000, user_id="u1")
+
+        exported = db.export_user_data(user_id="u1")
+        self.assertEqual([p["symbol"] for p in exported["positions"]], ["AAPL"])
+        self.assertEqual(exported["portfolio_history"][0]["total_value"], 1000)
+
+        deleted = db.delete_user_data(user_id="u1")
+        self.assertEqual(deleted["positions"], 1)
+        self.assertEqual(db.load_positions(user_id="u1"), [])
+        self.assertEqual([p.symbol for p in db.load_positions(user_id="u2")], ["MSFT"])
+
 
 if __name__ == "__main__":
     unittest.main()

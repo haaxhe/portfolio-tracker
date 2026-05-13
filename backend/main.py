@@ -504,6 +504,33 @@ def api_export_csv(
     )
 
 
+@app.get("/api/export/all")
+def api_export_all_data(
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Export all WealthBrief app data for the current user as JSON."""
+    enforce_rate_limit(request, current_user.user_id, "all_data_export", limit=10, window_seconds=3600)
+    payload = db.export_user_data(user_id=current_user.user_id)
+    output = io.StringIO(json.dumps(payload, indent=2, default=str))
+    return StreamingResponse(
+        output,
+        media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=wealthbrief_data_export.json"},
+    )
+
+
+@app.delete("/api/account/data")
+def api_delete_account_data(
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Delete all WealthBrief app data for the current user."""
+    enforce_rate_limit(request, current_user.user_id, "account_data_delete", limit=3, window_seconds=3600)
+    deleted = db.delete_user_data(user_id=current_user.user_id)
+    return {"deleted": deleted}
+
+
 # ─── Signals ───────────────────────────────────────────────────
 
 

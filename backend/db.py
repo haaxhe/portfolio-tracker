@@ -922,3 +922,54 @@ def clear_signals(symbol: str | None = None, user_id: str | None = None) -> int:
     conn.commit()
     conn.close()
     return deleted
+
+
+def _select_user_rows(conn, table: str, owner: str) -> list[dict]:
+    try:
+        rows = conn.execute(f"SELECT * FROM {table} WHERE user_id = ?", (owner,)).fetchall()
+    except Exception:
+        return []
+    return [dict(row) for row in rows]
+
+
+def export_user_data(user_id: str | None = None) -> dict:
+    """Return all app-owned, user-scoped data for account export."""
+    owner = _owner(user_id)
+    conn = _get_conn()
+    data = {
+        "user_id": owner,
+        "exported_at": datetime.now().isoformat(),
+        "positions": _select_user_rows(conn, "positions", owner),
+        "tax_lots": _select_user_rows(conn, "tax_lots", owner),
+        "closed_positions": _select_user_rows(conn, "closed_positions", owner),
+        "snapshots": _select_user_rows(conn, "snapshots", owner),
+        "portfolio_history": _select_user_rows(conn, "portfolio_history", owner),
+        "signals": _select_user_rows(conn, "signals", owner),
+        "youtube_market_mentions": _select_user_rows(conn, "youtube_market_mentions", owner),
+    }
+    conn.close()
+    return data
+
+
+def delete_user_data(user_id: str | None = None) -> dict[str, int]:
+    """Delete all app-owned, user-scoped data. Shared symbol price cache is retained."""
+    owner = _owner(user_id)
+    conn = _get_conn()
+    deleted: dict[str, int] = {}
+    for table in (
+        "positions",
+        "tax_lots",
+        "closed_positions",
+        "snapshots",
+        "portfolio_history",
+        "signals",
+        "youtube_market_mentions",
+    ):
+        try:
+            cur = conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (owner,))
+            deleted[table] = cur.rowcount
+        except Exception:
+            deleted[table] = 0
+    conn.commit()
+    conn.close()
+    return deleted

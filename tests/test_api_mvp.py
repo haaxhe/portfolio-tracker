@@ -104,6 +104,32 @@ class ApiMvpTest(unittest.TestCase):
         self.assertEqual(portfolio["positions"][0]["symbol"], "VTI")
         self.assertEqual(portfolio["positions"][0]["broker"], "schwab")
 
+    def test_export_all_and_delete_account_data(self) -> None:
+        created = self.client.post(
+            "/api/positions/upsert",
+            json={
+                "symbol": "AAPL",
+                "broker": "csv",
+                "quantity": 2,
+                "average_cost": 10,
+                "current_price": 15,
+                "asset_type": "stock",
+            },
+            headers=self._headers("u1"),
+        )
+        self.assertEqual(created.status_code, 200)
+
+        exported = self.client.get("/api/export/all", headers=self._headers("u1"))
+        self.assertEqual(exported.status_code, 200)
+        self.assertEqual(exported.json()["positions"][0]["symbol"], "AAPL")
+
+        deleted = self.client.delete("/api/account/data", headers=self._headers("u1"))
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(
+            self.client.get("/api/portfolio", headers=self._headers("u1")).json()["positions"],
+            [],
+        )
+
     def test_trusted_proxy_user_header_scopes_token_mode_when_enabled(self) -> None:
         settings.TRUST_PROXY_USER_HEADER = True
 
