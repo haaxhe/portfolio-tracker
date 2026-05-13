@@ -59,7 +59,20 @@
     font-family: var(--font-mono);
     margin-top: 4px;
   }
-  .prices-as-of { opacity: 0.65; }
+  .prices-as-of {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    opacity: 0.78;
+  }
+  .prices-as-of.is-refreshing {
+    color: var(--accent-blue);
+    opacity: 1;
+  }
+  .prices-as-of.is-error {
+    color: var(--accent-red);
+    opacity: 1;
+  }
   .header-actions { display: flex; gap: 10px; }
   .btn {
     font-family: var(--font-mono);

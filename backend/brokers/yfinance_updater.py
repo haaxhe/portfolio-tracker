@@ -162,6 +162,9 @@ def _fetch_chart_history(yf_symbols: list[str]) -> dict[str, dict]:
 
 def fetch_prices_and_history(
     positions: list[Position],
+    *,
+    use_cache: bool = True,
+    cache_ttl_seconds: int = 300,
 ) -> tuple[list[Position], dict[str, dict]]:
     """Single yfinance download (2026-01-01 → today) that:
     - Updates current prices on each position (last close)
@@ -173,32 +176,57 @@ def fetch_prices_and_history(
     if not updatable:
         return positions, {}
 
-    symbol_map: dict[str, str] = {}   # yf_symbol → portfolio symbol
-    alpaca_symbol_map: dict[str, str] = {}   # Alpaca symbol → portfolio symbol
+    symbol_map: dict[str, tuple[str, str]] = {}   # yf_symbol → (portfolio symbol, asset_type)
+    alpaca_symbol_map: dict[str, tuple[str, str]] = {}   # Alpaca symbol → (portfolio symbol, asset_type)
     for p in updatable:
         yfs = _yf_symbol(p.symbol, p.asset_type)
-        symbol_map[yfs] = p.symbol
+        symbol_map[yfs] = (p.symbol, p.asset_type)
         alpaca_sym = _alpaca_symbol(p.symbol, p.asset_type)
         if alpaca_sym:
-            alpaca_symbol_map[alpaca_sym] = p.symbol
+            alpaca_symbol_map[alpaca_sym] = (p.symbol, p.asset_type)
 
     yf_symbols = list(symbol_map.keys())
     prices: dict[str, float] = {}
     history: dict[str, dict] = {}
+    fetched_cache: dict[tuple[str, str], dict] = {}
 
-    alpaca_history = _fetch_alpaca_history(list(alpaca_symbol_map.keys()))
+    if use_cache:
+        from backend import db
+
+        cached = db.load_symbol_prices(
+            list({key for key in symbol_map.values()}),
+            max_age_seconds=cache_ttl_seconds,
+        )
+        for (sym, _asset_type), values in cached.items():
+            prices[sym] = float(values["current_price"])
+            if values.get("history"):
+                history[sym] = values["history"]
+
+        if cached:
+            logger.info(f"Symbol price cache: reused {len(cached)} fresh prices ({[k[0] for k in cached.keys()]})")
+
+    missing_alpaca_symbols = [
+        alpaca_sym for alpaca_sym, (sym, _asset_type) in alpaca_symbol_map.items()
+        if sym not in prices
+    ]
+    alpaca_history = _fetch_alpaca_history(missing_alpaca_symbols) if missing_alpaca_symbols else {}
     if alpaca_history:
         for alpaca_sym, values in alpaca_history.items():
-            sym = alpaca_symbol_map[alpaca_sym]
+            sym, asset_type = alpaca_symbol_map[alpaca_sym]
             prices[sym] = values["closes"][-1]
             history[sym] = values
+            fetched_cache[(sym, asset_type)] = {
+                "current_price": values["closes"][-1],
+                "history": values,
+                "source": "alpaca",
+            }
         logger.info(
             f"Alpaca: updated {len(alpaca_history)} prices + history "
-            f"({[alpaca_symbol_map[s] for s in alpaca_history.keys()]})"
+            f"({[alpaca_symbol_map[s][0] for s in alpaca_history.keys()]})"
         )
 
     missing_yf_symbols = [
-        yf_sym for yf_sym, sym in symbol_map.items()
+        yf_sym for yf_sym, (sym, _asset_type) in symbol_map.items()
         if sym not in prices
     ]
     if not missing_yf_symbols:
@@ -206,6 +234,10 @@ def fetch_prices_and_history(
             if p.symbol in prices:
                 p.current_price = prices[p.symbol]
                 p.compute_derived()
+        if fetched_cache:
+            from backend import db
+
+            db.save_symbol_prices(fetched_cache)
         return positions, history
 
     def _pack(series) -> dict:
@@ -238,16 +270,24 @@ def fetch_prices_and_history(
                 fallback = _fetch_chart_history(missing_yf_symbols)
                 if fallback:
                     for yf_sym, values in fallback.items():
-                        sym = symbol_map[yf_sym]
+                        sym, asset_type = symbol_map[yf_sym]
                         prices[sym] = values["closes"][-1]
                         history[sym] = values
+                        fetched_cache[(sym, asset_type)] = {
+                            "current_price": values["closes"][-1],
+                            "history": values,
+                            "source": "yahoo_chart",
+                        }
                     for p in positions:
                         if p.symbol in prices:
                             p.current_price = prices[p.symbol]
                             p.compute_derived()
+                    from backend import db
+
+                    db.save_symbol_prices(fetched_cache)
                     logger.info(
                         f"Yahoo chart fallback: filled {len(fallback)} missing prices + history "
-                        f"({[symbol_map[yf_sym] for yf_sym in fallback.keys()]}); "
+                        f"({[symbol_map[yf_sym][0] for yf_sym in fallback.keys()]}); "
                         f"total refreshed {len(prices)}"
                     )
                     return positions, history
@@ -268,25 +308,40 @@ def fetch_prices_and_history(
                 if yf_sym in close.columns:
                     series = close[yf_sym].dropna()
                     if not series.empty:
-                        sym = symbol_map[yf_sym]
+                        sym, asset_type = symbol_map[yf_sym]
                         prices[sym] = float(series.iloc[-1])
                         history[sym] = _pack(series)
+                        fetched_cache[(sym, asset_type)] = {
+                            "current_price": prices[sym],
+                            "history": history[sym],
+                            "source": "yfinance",
+                        }
 
             remaining_yf_symbols = [
-                yf_sym for yf_sym, sym in symbol_map.items()
+                yf_sym for yf_sym, (sym, _asset_type) in symbol_map.items()
                 if sym not in prices
             ]
             if remaining_yf_symbols:
                 fallback = _fetch_chart_history(remaining_yf_symbols)
                 for yf_sym, values in fallback.items():
-                    sym = symbol_map[yf_sym]
+                    sym, asset_type = symbol_map[yf_sym]
                     prices[sym] = values["closes"][-1]
                     history[sym] = values
+                    fetched_cache[(sym, asset_type)] = {
+                        "current_price": values["closes"][-1],
+                        "history": values,
+                        "source": "yahoo_chart",
+                    }
 
             for p in positions:
                 if p.symbol in prices:
                     p.current_price = prices[p.symbol]
                     p.compute_derived()
+
+            if fetched_cache:
+                from backend import db
+
+                db.save_symbol_prices(fetched_cache)
 
             logger.info(
                 f"Price refresh: updated {len(prices)} prices + history "
@@ -303,6 +358,14 @@ def fetch_prices_and_history(
                 time.sleep(delay)
             else:
                 logger.error(f"yfinance fetch failed: {e}")
+                if fetched_cache:
+                    from backend import db
+
+                    db.save_symbol_prices(fetched_cache)
                 return _apply(prices), history
 
+    if fetched_cache:
+        from backend import db
+
+        db.save_symbol_prices(fetched_cache)
     return _apply(prices), history

@@ -77,6 +77,20 @@ class DbTenancyTest(unittest.TestCase):
         self.assertEqual(db.load_portfolio_history(user_id="u1")[0]["total_value"], 1000)
         self.assertEqual(db.load_portfolio_history(user_id="u2")[0]["total_value"], 2000)
 
+    def test_symbol_price_cache_is_global(self) -> None:
+        db.save_symbol_prices({
+            ("AAPL", "stock"): {
+                "current_price": 188.25,
+                "history": {"dates": ["2026-01-02"], "closes": [188.25]},
+                "source": "test",
+            }
+        })
+
+        cached = db.load_symbol_prices([("AAPL", "stock")], max_age_seconds=300)
+
+        self.assertEqual(cached[("AAPL", "stock")]["current_price"], 188.25)
+        self.assertEqual(cached[("AAPL", "stock")]["history"]["closes"], [188.25])
+
 
 if __name__ == "__main__":
     unittest.main()

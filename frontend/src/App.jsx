@@ -5,6 +5,7 @@ import './styles.css';
 
 const API = '';
 const API_AUTH_TOKEN_KEY = 'portfolio_tracker_api_token';
+const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const originalFetch = window.fetch.bind(window);
 let apiAuthToken = null;
 
@@ -136,6 +137,23 @@ function formatMoney(n) {
 function formatPct(n) {
   if (n == null || isNaN(n)) return '0.00%';
   return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+function formatPriceTimestamp(isoValue) {
+  if (!isoValue) return null;
+  const d = new Date(isoValue);
+  if (isNaN(d.getTime())) return null;
+  const now = new Date();
+  const diffMs = now - d;
+  const diffMins = Math.round(diffMs / 60000);
+  const diffHrs = Math.round(diffMs / 3600000);
+  const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const isToday = d.toDateString() === now.toDateString();
+  const age = diffMins < 2 ? 'just now'
+    : diffMins < 60 ? `${diffMins}m ago`
+    : diffHrs < 24 ? `${diffHrs}h ago`
+    : `${Math.round(diffMs / 86400000)}d ago`;
+  return `${isToday ? timeStr : dateStr + ' ' + timeStr} (${age})`;
 }
 
 const BROKER_OPTIONS = [
@@ -2566,6 +2584,17 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
   const [toast, setToast] = useState(null);
   const [activeTab, setActiveTab] = useState('active');
   const [dateRange, setDateRange] = useState('1M');
+  const [refreshState, setRefreshState] = useState({
+    active: false,
+    source: null,
+    error: null,
+    lastCompletedAt: null,
+  });
+  const autoRefreshStarted = useRef(false);
+  const positions = portfolio?.positions || [];
+  const hasData = positions.length > 0;
+  const hasPricedPositions = positions.some(p => p.asset_type !== 'cash');
+  const hasAnyData = hasData || closedPositions.length > 0;
 
   const fetchPortfolio = useCallback(async () => {
     try {
@@ -2622,6 +2651,54 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
     fetchPriceHistory();
   }, [demoMode, fetchPortfolio, fetchClosed, fetchTaxLots, fetchPriceHistory]);
 
+  const refreshPortfolio = useCallback(async ({ source = 'manual', notify = false } = {}) => {
+    if (demoMode) {
+      if (notify) setToast({ message: 'Demo data is already loaded', type: 'success' });
+      return;
+    }
+    setLoading(true);
+    setRefreshState(prev => ({ ...prev, active: true, source, error: null }));
+    try {
+      await fetch(`${API}/api/refresh`, { method: 'POST' });
+      await fetchPortfolio();
+      await fetchPriceHistory();
+      setRefreshState({
+        active: false,
+        source,
+        error: null,
+        lastCompletedAt: new Date().toISOString(),
+      });
+      if (notify) setToast({ message: 'Portfolio refreshed', type: 'success' });
+    } catch {
+      setRefreshState(prev => ({
+        ...prev,
+        active: false,
+        source,
+        error: 'Price refresh failed',
+      }));
+      if (notify) setToast({ message: 'Refresh failed', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  }, [demoMode, fetchPortfolio, fetchPriceHistory]);
+
+  useEffect(() => {
+    if (demoMode || !hasPricedPositions) return undefined;
+
+    if (!autoRefreshStarted.current) {
+      autoRefreshStarted.current = true;
+      refreshPortfolio({ source: 'auto' });
+    }
+
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        refreshPortfolio({ source: 'auto' });
+      }
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(id);
+  }, [demoMode, hasPricedPositions, refreshPortfolio]);
+
   // Scroll Tax Lots panel into view when a position is selected
   useEffect(() => {
     if (selectedPosition) {
@@ -2631,20 +2708,7 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
   }, [selectedPosition]);
 
   const handleRefresh = async () => {
-    if (demoMode) {
-      setToast({ message: 'Demo data is already loaded', type: 'success' });
-      return;
-    }
-    setLoading(true);
-    try {
-      await fetch(`${API}/api/refresh`, { method: 'POST' });
-      await fetchPortfolio();
-      fetchPriceHistory();
-      setToast({ message: 'Portfolio refreshed', type: 'success' });
-    } catch {
-      setToast({ message: 'Refresh failed', type: 'error' });
-    }
-    setLoading(false);
+    refreshPortfolio({ source: 'manual', notify: true });
   };
 
   const handleUpload = async (formData, broker) => {
@@ -2696,31 +2760,31 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
     setToast({ message: `Added ${position.symbol}`, type: 'success' });
   };
 
-  const positions = portfolio?.positions || [];
-  const hasData = positions.length > 0;
-  const hasAnyData = hasData || closedPositions.length > 0;
   const totalCash = positions.filter(p => p.asset_type === 'cash').reduce((s, p) => s + p.market_value, 0);
 
-  const pricesAsOf = (() => {
-    const ts = positions
+  const latestPriceIso = (() => {
+    const timestamps = positions
       .filter(p => p.asset_type !== 'cash' && p.updated_at)
-      .map(p => new Date(p.updated_at).getTime())
-      .filter(t => !isNaN(t));
-    if (!ts.length) return null;
-    const d = new Date(Math.max(...ts));
-    const now = new Date();
-    const diffMs = now - d;
-    const diffMins = Math.round(diffMs / 60000);
-    const diffHrs = Math.round(diffMs / 3600000);
-    const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    const isToday = d.toDateString() === now.toDateString();
-    const age = diffMins < 2 ? 'just now'
-      : diffMins < 60 ? `${diffMins}m ago`
-      : diffHrs < 24 ? `${diffHrs}h ago`
-      : `${Math.round(diffMs / 86400000)}d ago`;
-    return `${isToday ? timeStr : dateStr + ' ' + timeStr} (${age})`;
+      .map(p => p.updated_at)
+      .map(value => ({ value, time: new Date(value).getTime() }))
+      .filter(item => !isNaN(item.time));
+    if (!timestamps.length) return null;
+    timestamps.sort((a, b) => b.time - a.time);
+    return timestamps[0].value;
   })();
+  const pricesAsOf = formatPriceTimestamp(latestPriceIso);
+  const lastRefreshCompleted = formatPriceTimestamp(refreshState.lastCompletedAt);
+  const refreshStatusText = demoMode
+    ? 'Sample prices'
+    : refreshState.active
+      ? 'Auto-refreshing prices...'
+      : refreshState.error
+        ? `Auto-refresh failed${pricesAsOf ? `, latest shown ${pricesAsOf}` : ''}`
+        : pricesAsOf
+          ? `Auto-refresh on, latest prices ${pricesAsOf}`
+          : lastRefreshCompleted
+            ? `Last refresh ${lastRefreshCompleted}`
+            : 'Prices update automatically every 5 minutes';
   const totalRealized = closedPositions.reduce((s, p) => s + p.realized_gain, 0);
   const currentYear = new Date().getFullYear().toString();
   const ytdRealized = closedPositions
@@ -2739,10 +2803,9 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
               ? `${positions.length} positions across ${Object.keys(portfolio.broker_breakdown || {}).length} broker(s)`
               : 'No positions loaded'
             }
-            {demoMode && <span className="prices-as-of"> · sample data</span>}
-            {pricesAsOf && (
-              <span className="prices-as-of"> · prices as of {pricesAsOf}</span>
-            )}
+            <span className={`prices-as-of${refreshState.active ? ' is-refreshing' : ''}${refreshState.error ? ' is-error' : ''}`}>
+              {' · '}{refreshStatusText}
+            </span>
           </div>
         </div>
         <div className="header-actions">

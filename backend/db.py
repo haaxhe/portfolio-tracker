@@ -144,6 +144,16 @@ def init_db() -> None:
             data_json TEXT DEFAULT '{}',
             timestamp TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS symbol_prices (
+            symbol TEXT NOT NULL,
+            asset_type TEXT NOT NULL DEFAULT 'stock',
+            current_price DOUBLE PRECISION NOT NULL,
+            history_json TEXT DEFAULT '{}',
+            source TEXT DEFAULT '',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (symbol, asset_type)
+        );
         """)
     else:
         conn.executescript("""
@@ -218,6 +228,16 @@ def init_db() -> None:
             data_json TEXT DEFAULT '{}',
             timestamp TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS symbol_prices (
+            symbol TEXT NOT NULL,
+            asset_type TEXT NOT NULL DEFAULT 'stock',
+            current_price REAL NOT NULL,
+            history_json TEXT DEFAULT '{}',
+            source TEXT DEFAULT '',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (symbol, asset_type)
+        );
         CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol);
         CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(timestamp);
     """)
@@ -231,10 +251,91 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_snapshots_user_ts ON snapshots(user_id, timestamp);
         CREATE INDEX IF NOT EXISTS idx_signals_user_symbol ON signals(user_id, symbol);
         CREATE INDEX IF NOT EXISTS idx_signals_user_ts ON signals(user_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_symbol_prices_updated ON symbol_prices(updated_at);
     """)
+    if not _using_postgres():
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_symbol_prices_updated ON symbol_prices(updated_at)"
+        )
     conn.commit()
     conn.close()
     logger.info("Database initialized")
+
+
+def save_symbol_prices(
+    prices: dict[tuple[str, str], dict],
+    source: str = "",
+) -> None:
+    """Upsert global symbol price cache rows keyed by (symbol, asset_type)."""
+    if not prices:
+        return
+
+    conn = _get_conn()
+    now = datetime.now().isoformat()
+    for (symbol, asset_type), payload in prices.items():
+        price = payload.get("current_price")
+        if price is None:
+            continue
+        history = payload.get("history") or {}
+        cache_source = payload.get("source") or source
+        conn.execute(
+            """INSERT INTO symbol_prices
+               (symbol, asset_type, current_price, history_json, source, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(symbol, asset_type) DO UPDATE SET
+                 current_price = excluded.current_price,
+                 history_json = excluded.history_json,
+                 source = excluded.source,
+                 updated_at = excluded.updated_at""",
+            (
+                symbol.upper().strip(),
+                asset_type,
+                float(price),
+                json.dumps(history),
+                cache_source,
+                now,
+            ),
+        )
+    conn.commit()
+    conn.close()
+
+
+def load_symbol_prices(
+    symbols: list[tuple[str, str]],
+    max_age_seconds: int | None = None,
+) -> dict[tuple[str, str], dict]:
+    """Load global cached prices, optionally filtering out stale rows."""
+    if not symbols:
+        return {}
+
+    wanted = {(symbol.upper().strip(), asset_type) for symbol, asset_type in symbols}
+    conn = _get_conn()
+    results: dict[tuple[str, str], dict] = {}
+    for symbol, asset_type in wanted:
+        row = conn.execute(
+            """SELECT symbol, asset_type, current_price, history_json, source, updated_at
+               FROM symbol_prices WHERE symbol = ? AND asset_type = ?""",
+            (symbol, asset_type),
+        ).fetchone()
+        if not row:
+            continue
+        updated_at = datetime.fromisoformat(row["updated_at"])
+        if max_age_seconds is not None:
+            age_seconds = (datetime.now() - updated_at).total_seconds()
+            if age_seconds > max_age_seconds:
+                continue
+        try:
+            history = json.loads(row["history_json"] or "{}")
+        except json.JSONDecodeError:
+            history = {}
+        results[(row["symbol"], row["asset_type"])] = {
+            "current_price": row["current_price"],
+            "history": history,
+            "source": row["source"],
+            "updated_at": row["updated_at"],
+        }
+    conn.close()
+    return results
 
 
 def upsert_cash(broker: str, amount: float, user_id: str | None = None) -> None:
