@@ -130,6 +130,63 @@ class ApiMvpTest(unittest.TestCase):
             [],
         )
 
+    def test_analytics_accepts_anonymous_funnel_event(self) -> None:
+        response = self.client.post(
+            "/api/analytics/events",
+            json={
+                "event_name": "landing_view",
+                "session_id": "anon-session-1",
+                "path": "/",
+                "referrer": "",
+                "metadata": {"source": "direct"},
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        events = db.load_analytics_events(session_id="anon-session-1")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event_name"], "landing_view")
+        self.assertIsNone(events[0]["user_id"])
+        self.assertEqual(events[0]["metadata"], {"source": "direct"})
+
+    def test_analytics_rejects_invalid_event_names(self) -> None:
+        response = self.client.post(
+            "/api/analytics/events",
+            json={
+                "event_name": "Landing View!",
+                "session_id": "anon-session-1",
+                "metadata": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_analytics_attaches_authenticated_user_and_respects_data_controls(self) -> None:
+        response = self.client.post(
+            "/api/analytics/events",
+            json={
+                "event_name": "csv_import_success",
+                "session_id": "session-auth-1",
+                "path": "/",
+                "metadata": {"broker": "csv", "imported": 2},
+            },
+            headers=self._headers(),
+        )
+        self.assertEqual(response.status_code, 200)
+
+        events = db.load_analytics_events(user_id="fallback-user")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event_name"], "csv_import_success")
+
+        exported = self.client.get("/api/export/all", headers=self._headers())
+        self.assertEqual(exported.status_code, 200)
+        self.assertEqual(exported.json()["analytics_events"][0]["event_name"], "csv_import_success")
+
+        deleted = self.client.delete("/api/account/data", headers=self._headers())
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(deleted.json()["deleted"]["analytics_events"], 1)
+        self.assertEqual(db.load_analytics_events(user_id="fallback-user"), [])
+
     def test_trusted_proxy_user_header_scopes_token_mode_when_enabled(self) -> None:
         settings.TRUST_PROXY_USER_HEADER = True
 

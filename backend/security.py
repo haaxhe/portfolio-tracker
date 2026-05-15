@@ -53,7 +53,7 @@ def enforce_rate_limit(
 
 def apply_security_headers(headers: MutableHeaders) -> None:
     headers.setdefault("X-Content-Type-Options", "nosniff")
-    headers.setdefault("X-Frame-Options", "DENY")
+    headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
     headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
@@ -94,7 +94,7 @@ def _content_security_policy() -> str:
             "connect-src " + " ".join(connect_src),
             "base-uri 'self'",
             "form-action 'self'",
-            "frame-ancestors 'none'",
+            "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*",
             "object-src 'none'",
         ]
     )

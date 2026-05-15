@@ -28,11 +28,20 @@ class Position(BaseModel):
     account_id: str = ""
     asset_type: str = "stock"  # stock, etf, option, crypto
     updated_at: datetime = Field(default_factory=datetime.now)
+    # Option-specific fields (None for non-option positions)
+    option_type: str | None = None        # 'call' | 'put'
+    strike_price: float | None = None
+    expiration_date: str | None = None    # YYYY-MM-DD
 
     def compute_derived(self) -> None:
-        """Recalculate market_value and gain fields from price data."""
-        self.market_value = self.quantity * self.current_price
-        cost_basis = self.quantity * self.average_cost
+        """Recalculate market_value and gain fields from price data.
+
+        Options are priced per share but each contract covers 100 shares,
+        so market_value and cost_basis are multiplied by 100.
+        """
+        multiplier = 100 if self.asset_type == "option" else 1
+        self.market_value = self.quantity * self.current_price * multiplier
+        cost_basis = self.quantity * self.average_cost * multiplier
         self.unrealized_gain = self.market_value - cost_basis
         if cost_basis > 0:
             self.unrealized_gain_pct = (self.unrealized_gain / cost_basis) * 100

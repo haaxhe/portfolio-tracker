@@ -64,6 +64,29 @@ def get_current_user(
     raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Unsupported AUTH_MODE")
 
 
+def get_optional_current_user(
+    authorization: str | None = Header(default=None),
+    x_authenticated_user_id: str | None = Header(
+        default=None,
+        alias="X-Authenticated-User-Id",
+    ),
+) -> CurrentUser | None:
+    """Resolve a user only when the request includes credentials.
+
+    Analytics accepts anonymous funnel events, but signed-in requests should be
+    attributed to the verified account owner.
+    """
+    auth_mode = settings.AUTH_MODE.strip().lower()
+    if auth_mode == "local":
+        return CurrentUser(user_id=_clean_user_id(settings.DEFAULT_USER_ID))
+    if not authorization:
+        return None
+    return get_current_user(
+        authorization=authorization,
+        x_authenticated_user_id=x_authenticated_user_id,
+    )
+
+
 def _get_supabase_user(authorization: str | None) -> CurrentUser:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing Supabase bearer token")

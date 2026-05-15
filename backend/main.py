@@ -8,18 +8,20 @@ import csv
 import io
 import json
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends, FastAPI, UploadFile, File, Query, HTTPException, Request
-from pydantic import BaseModel as PydanticBaseModel
+from pydantic import BaseModel as PydanticBaseModel, Field
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import settings
 from backend import db
-from backend.auth import CurrentUser, get_current_user
+from backend.auth import CurrentUser, get_current_user, get_optional_current_user
 from backend.models import BrokerName, ClosedPosition, Position, TaxLot
 from backend.signals.models import SignalType
 from backend.brokers.csv_import import ALLOWED_ASSET_TYPES, CSVImporter, MAX_NAME_LENGTH, SYMBOL_RE
@@ -35,6 +37,10 @@ DIST_DIR = FRONTEND_DIR / "dist"
 MAX_CSV_UPLOAD_BYTES = 2 * 1024 * 1024
 MAX_CSV_ROWS = 2_000
 MAX_SIGNAL_SCAN_SYMBOLS = 50
+MAX_ANALYTICS_METADATA_BYTES = 4_096
+MAX_ANALYTICS_TEXT_BYTES = 512
+ANALYTICS_EVENT_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,63}$")
+ANALYTICS_SESSION_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 CSV_CONTENT_TYPES = {
     "text/csv",
     "text/plain",
@@ -112,6 +118,43 @@ def _validate_signal_symbols(symbols: list[str]) -> list[str]:
     return cleaned
 
 
+class AnalyticsEventIn(PydanticBaseModel):
+    event_name: str
+    session_id: str
+    path: str = ""
+    referrer: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+def _truncate_analytics_text(value: str | None) -> str:
+    return (value or "").strip()[:MAX_ANALYTICS_TEXT_BYTES]
+
+
+def _clean_analytics_event(body: AnalyticsEventIn) -> dict[str, Any]:
+    event_name = body.event_name.strip().lower()
+    if not ANALYTICS_EVENT_RE.fullmatch(event_name):
+        raise HTTPException(400, "event_name is invalid")
+
+    session_id = body.session_id.strip()
+    if not ANALYTICS_SESSION_RE.fullmatch(session_id):
+        raise HTTPException(400, "session_id is invalid")
+
+    try:
+        metadata_json = json.dumps(body.metadata, default=str, sort_keys=True)
+    except TypeError as exc:
+        raise HTTPException(400, "metadata must be JSON serializable") from exc
+    if len(metadata_json.encode("utf-8")) > MAX_ANALYTICS_METADATA_BYTES:
+        raise HTTPException(413, "metadata is too large")
+
+    return {
+        "event_name": event_name,
+        "session_id": session_id,
+        "path": _truncate_analytics_text(body.path),
+        "referrer": _truncate_analytics_text(body.referrer),
+        "metadata": json.loads(metadata_json),
+    }
+
+
 # ─── API Routes ───────────────────────────────────────────────
 
 
@@ -127,6 +170,32 @@ def api_public_config():
             settings.SUPABASE_PUBLISHABLE_KEY if settings.AUTH_MODE == "supabase" else ""
         ),
     }
+
+
+@app.post("/api/analytics/events")
+def api_track_analytics_event(
+    request: Request,
+    body: AnalyticsEventIn,
+    current_user: CurrentUser | None = Depends(get_optional_current_user),
+):
+    """Record first-party product funnel analytics.
+
+    This endpoint intentionally accepts anonymous events so landing-page and
+    demo flows can be measured before signup.
+    """
+    cleaned = _clean_analytics_event(body)
+    rate_key = current_user.user_id if current_user else f"anon:{cleaned['session_id']}"
+    enforce_rate_limit(request, rate_key, "analytics_event", limit=240, window_seconds=300)
+    event_id = db.save_analytics_event(
+        user_id=current_user.user_id if current_user else None,
+        event_name=cleaned["event_name"],
+        session_id=cleaned["session_id"],
+        path=cleaned["path"],
+        referrer=cleaned["referrer"],
+        user_agent=_truncate_analytics_text(request.headers.get("user-agent")),
+        metadata=cleaned["metadata"],
+    )
+    return {"ok": True, "id": event_id}
 
 
 @app.get("/api/portfolio")
@@ -423,6 +492,9 @@ class PositionUpsert(PydanticBaseModel):
     average_cost: float
     current_price: float
     asset_type: str = "stock"
+    option_type: str | None = None        # 'call' | 'put'
+    strike_price: float | None = None
+    expiration_date: str | None = None    # YYYY-MM-DD
 
 
 @app.post("/api/positions/upsert")
@@ -460,6 +532,9 @@ def api_upsert_position(
         average_cost=pos.average_cost,
         current_price=pos.current_price,
         asset_type=asset_type,
+        option_type=pos.option_type.lower().strip() if pos.option_type else None,
+        strike_price=pos.strike_price,
+        expiration_date=pos.expiration_date,
     )
     saved = db.upsert_position(position, user_id=current_user.user_id)
     return saved

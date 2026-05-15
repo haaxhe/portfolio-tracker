@@ -154,6 +154,18 @@ def init_db() -> None:
             updated_at TEXT NOT NULL,
             PRIMARY KEY (symbol, asset_type)
         );
+
+        CREATE TABLE IF NOT EXISTS analytics_events (
+            id BIGSERIAL PRIMARY KEY,
+            user_id TEXT DEFAULT NULL,
+            session_id TEXT NOT NULL,
+            event_name TEXT NOT NULL,
+            path TEXT DEFAULT '',
+            referrer TEXT DEFAULT '',
+            user_agent TEXT DEFAULT '',
+            metadata_json TEXT DEFAULT '{}',
+            created_at TEXT NOT NULL
+        );
         """)
     else:
         conn.executescript("""
@@ -238,12 +250,27 @@ def init_db() -> None:
             updated_at TEXT NOT NULL,
             PRIMARY KEY (symbol, asset_type)
         );
+
+        CREATE TABLE IF NOT EXISTS analytics_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT DEFAULT NULL,
+            session_id TEXT NOT NULL,
+            event_name TEXT NOT NULL,
+            path TEXT DEFAULT '',
+            referrer TEXT DEFAULT '',
+            user_agent TEXT DEFAULT '',
+            metadata_json TEXT DEFAULT '{}',
+            created_at TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol);
         CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(timestamp);
     """)
     for table in ("positions", "tax_lots", "closed_positions", "snapshots", "signals"):
         _ensure_column(conn, table, "user_id", f"TEXT NOT NULL DEFAULT '{settings.DEFAULT_USER_ID}'")
     _ensure_column(conn, "positions", "acquired_at", "TEXT DEFAULT NULL")
+    _ensure_column(conn, "positions", "option_type", "TEXT DEFAULT NULL")
+    _ensure_column(conn, "positions", "strike_price", "REAL DEFAULT NULL")
+    _ensure_column(conn, "positions", "expiration_date", "TEXT DEFAULT NULL")
     conn.executescript("""
         CREATE INDEX IF NOT EXISTS idx_tax_lots_user_sym ON tax_lots(user_id, symbol, broker);
         CREATE INDEX IF NOT EXISTS idx_positions_user_broker ON positions(user_id, broker);
@@ -252,6 +279,9 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_signals_user_symbol ON signals(user_id, symbol);
         CREATE INDEX IF NOT EXISTS idx_signals_user_ts ON signals(user_id, timestamp);
         CREATE INDEX IF NOT EXISTS idx_symbol_prices_updated ON symbol_prices(updated_at);
+        CREATE INDEX IF NOT EXISTS idx_analytics_events_user_ts ON analytics_events(user_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_analytics_events_session_ts ON analytics_events(session_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_analytics_events_name_ts ON analytics_events(event_name, created_at);
     """)
     if not _using_postgres():
         conn.execute(
@@ -361,26 +391,44 @@ def upsert_cash(broker: str, amount: float, user_id: str | None = None) -> None:
 
 
 def upsert_position(position: Position, user_id: str | None = None) -> Position:
-    """Insert or update one non-cash position without replacing broker holdings."""
+    """Insert or update one non-cash position without replacing broker holdings.
+
+    Options are keyed by (symbol, broker, option_type, strike_price, expiration_date)
+    so different strikes/expirations on the same underlying are separate rows.
+    """
     owner = _owner(user_id)
     position.symbol = position.symbol.upper().strip()
     position.name = position.name or position.symbol
     position.compute_derived()
 
     conn = _get_conn()
-    row = conn.execute(
-        """SELECT id FROM positions
-           WHERE user_id = ? AND symbol = ? AND broker = ? AND asset_type != 'cash'
-           ORDER BY id LIMIT 1""",
-        (owner, position.symbol, position.broker.value),
-    ).fetchone()
+
+    is_option = position.asset_type == "option"
+    if is_option:
+        row = conn.execute(
+            """SELECT id FROM positions
+               WHERE user_id = ? AND symbol = ? AND broker = ? AND asset_type = 'option'
+                 AND option_type IS ? AND strike_price IS ? AND expiration_date IS ?
+               ORDER BY id LIMIT 1""",
+            (owner, position.symbol, position.broker.value,
+             position.option_type, position.strike_price, position.expiration_date),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """SELECT id FROM positions
+               WHERE user_id = ? AND symbol = ? AND broker = ? AND asset_type != 'cash'
+                 AND asset_type != 'option'
+               ORDER BY id LIMIT 1""",
+            (owner, position.symbol, position.broker.value),
+        ).fetchone()
 
     if row:
         conn.execute(
             """UPDATE positions SET
                name = ?, quantity = ?, average_cost = ?, current_price = ?,
                market_value = ?, unrealized_gain = ?, unrealized_gain_pct = ?,
-               account_id = ?, asset_type = ?, updated_at = ?
+               account_id = ?, asset_type = ?, updated_at = ?,
+               option_type = ?, strike_price = ?, expiration_date = ?
                WHERE id = ?""",
             (
                 position.name,
@@ -393,6 +441,9 @@ def upsert_position(position: Position, user_id: str | None = None) -> Position:
                 position.account_id,
                 position.asset_type,
                 position.updated_at.isoformat(),
+                position.option_type,
+                position.strike_price,
+                position.expiration_date,
                 row["id"],
             ),
         )
@@ -401,8 +452,9 @@ def upsert_position(position: Position, user_id: str | None = None) -> Position:
         insert_sql = """INSERT INTO positions
             (user_id, symbol, name, quantity, average_cost, current_price,
              market_value, unrealized_gain, unrealized_gain_pct,
-             broker, account_id, asset_type, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+             broker, account_id, asset_type, updated_at,
+             option_type, strike_price, expiration_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
         position.id = _insert_and_get_id(
             conn,
             insert_sql,
@@ -420,6 +472,9 @@ def upsert_position(position: Position, user_id: str | None = None) -> Position:
                 position.account_id,
                 position.asset_type,
                 position.updated_at.isoformat(),
+                position.option_type,
+                position.strike_price,
+                position.expiration_date,
             ),
         )
 
@@ -484,6 +539,9 @@ def load_positions(broker: str | None = None, user_id: str | None = None) -> lis
             account_id=r["account_id"],
             asset_type=r["asset_type"],
             updated_at=datetime.fromisoformat(r["updated_at"]),
+            option_type=r["option_type"] if "option_type" in r.keys() else None,
+            strike_price=r["strike_price"] if "strike_price" in r.keys() else None,
+            expiration_date=r["expiration_date"] if "expiration_date" in r.keys() else None,
         )
         for r in rows
     ]
@@ -924,6 +982,76 @@ def clear_signals(symbol: str | None = None, user_id: str | None = None) -> int:
     return deleted
 
 
+def save_analytics_event(
+    *,
+    event_name: str,
+    session_id: str,
+    user_id: str | None = None,
+    path: str = "",
+    referrer: str = "",
+    user_agent: str = "",
+    metadata: dict | None = None,
+) -> int:
+    """Persist a first-party product analytics event."""
+    conn = _get_conn()
+    event_id = _insert_and_get_id(
+        conn,
+        """INSERT INTO analytics_events
+           (user_id, session_id, event_name, path, referrer, user_agent, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            user_id,
+            session_id,
+            event_name,
+            path,
+            referrer,
+            user_agent,
+            json.dumps(metadata or {}, sort_keys=True),
+            datetime.now().isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return event_id
+
+
+def load_analytics_events(
+    *,
+    user_id: str | None = None,
+    session_id: str | None = None,
+    event_name: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """Load analytics events for tests and operational inspection."""
+    clauses: list[str] = []
+    params: list[object] = []
+    if user_id is not None:
+        clauses.append("user_id = ?")
+        params.append(user_id)
+    if session_id is not None:
+        clauses.append("session_id = ?")
+        params.append(session_id)
+    if event_name is not None:
+        clauses.append("event_name = ?")
+        params.append(event_name)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    params.append(limit)
+
+    conn = _get_conn()
+    rows = conn.execute(
+        f"SELECT * FROM analytics_events{where} ORDER BY id DESC LIMIT ?",
+        params,
+    ).fetchall()
+    conn.close()
+    events = [dict(row) for row in rows]
+    for event in events:
+        try:
+            event["metadata"] = json.loads(event.get("metadata_json") or "{}")
+        except json.JSONDecodeError:
+            event["metadata"] = {}
+    return events
+
+
 def _select_user_rows(conn, table: str, owner: str) -> list[dict]:
     try:
         rows = conn.execute(f"SELECT * FROM {table} WHERE user_id = ?", (owner,)).fetchall()
@@ -946,6 +1074,7 @@ def export_user_data(user_id: str | None = None) -> dict:
         "portfolio_history": _select_user_rows(conn, "portfolio_history", owner),
         "signals": _select_user_rows(conn, "signals", owner),
         "youtube_market_mentions": _select_user_rows(conn, "youtube_market_mentions", owner),
+        "analytics_events": _select_user_rows(conn, "analytics_events", owner),
     }
     conn.close()
     return data
@@ -964,6 +1093,7 @@ def delete_user_data(user_id: str | None = None) -> dict[str, int]:
         "portfolio_history",
         "signals",
         "youtube_market_mentions",
+        "analytics_events",
     ):
         try:
             cur = conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (owner,))

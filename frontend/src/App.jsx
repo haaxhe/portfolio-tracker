@@ -5,6 +5,7 @@ import './styles.css';
 
 const API = '';
 const API_AUTH_TOKEN_KEY = 'portfolio_tracker_api_token';
+const ANALYTICS_SESSION_KEY = 'wealthbrief_analytics_session_id';
 const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const SUPPORT_EMAIL = 'support@getwealthbrief.com';
 const originalFetch = window.fetch.bind(window);
@@ -26,8 +27,50 @@ window.fetch = (input, init = {}) => {
   return originalFetch(input, { ...init, headers });
 };
 
+function makeAnalyticsSessionId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  return `wb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function getAnalyticsSessionId() {
+  try {
+    let sessionId = localStorage.getItem(ANALYTICS_SESSION_KEY);
+    if (!sessionId) {
+      sessionId = makeAnalyticsSessionId();
+      localStorage.setItem(ANALYTICS_SESSION_KEY, sessionId);
+    }
+    return sessionId;
+  } catch {
+    if (!window.__wealthbriefAnalyticsSessionId) {
+      window.__wealthbriefAnalyticsSessionId = makeAnalyticsSessionId();
+    }
+    return window.__wealthbriefAnalyticsSessionId;
+  }
+}
+
+function trackAnalyticsEvent(eventName, metadata = {}) {
+  try {
+    const payload = {
+      event_name: eventName,
+      session_id: getAnalyticsSessionId(),
+      path: `${window.location.pathname}${window.location.search}`,
+      referrer: document.referrer || '',
+      metadata,
+    };
+    fetch(`${API}/api/analytics/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // Analytics must never block the product experience.
+  }
+}
+
 function AuthGate() {
   const [publicView, setPublicView] = React.useState('landing');
+  const trackedSessionRef = React.useRef(false);
   const [state, setState] = React.useState({
     loading: true,
     config: null,
@@ -76,14 +119,22 @@ function AuthGate() {
   const syncSession = (session) => {
     if (session?.access_token) {
       apiAuthToken = session.access_token;
+      if (!trackedSessionRef.current) {
+        trackedSessionRef.current = true;
+        trackAnalyticsEvent('auth_session_active', {
+          provider: session.user?.app_metadata?.provider || 'unknown',
+        });
+      }
     } else {
       apiAuthToken = null;
       localStorage.removeItem(API_AUTH_TOKEN_KEY);
+      trackedSessionRef.current = false;
     }
   };
 
   const signIn = async () => {
     if (!state.client) return;
+    trackAnalyticsEvent('signup_google_click');
     await state.client.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },
@@ -99,8 +150,19 @@ function AuthGate() {
     return { error: error?.message || null };
   };
 
+  const openSignIn = (source) => {
+    trackAnalyticsEvent('signup_entry_click', { source });
+    setPublicView('signin');
+  };
+
+  const openDemo = (source) => {
+    trackAnalyticsEvent('demo_launch_click', { source });
+    setPublicView('demo');
+  };
+
   const signOut = async () => {
     if (state.client) await state.client.auth.signOut();
+    trackAnalyticsEvent('signout_click');
     syncSession(null);
     setState(prev => ({ ...prev, session: null }));
   };
@@ -119,7 +181,7 @@ function AuthGate() {
         demoMode
         demoData={DEMO_DATA}
         onExitDemo={() => setPublicView('landing')}
-        onSignIn={canOpenPortfolio ? () => setPublicView('landing') : () => setPublicView('signin')}
+        onSignIn={canOpenPortfolio ? () => setPublicView('landing') : () => openSignIn('demo_use_my_portfolio')}
       />
     );
   }
@@ -129,7 +191,7 @@ function AuthGate() {
         page={publicView}
         onBack={() => setPublicView(state.config?.auth_mode === 'supabase' && !state.session ? 'landing' : 'app')}
         onSelectPage={setPublicView}
-        onSignIn={() => setPublicView('signin')}
+        onSignIn={() => openSignIn(`trust_${publicView}`)}
         isAuthed={!!state.session || state.config?.auth_mode !== 'supabase'}
       />
     );
@@ -140,7 +202,7 @@ function AuthGate() {
         onBack={() => setPublicView('landing')}
         onContinueGoogle={signIn}
         onSendMagicLink={sendMagicLink}
-        onViewDemo={() => setPublicView('demo')}
+        onViewDemo={() => openDemo('signup_page')}
         onSelectTrustPage={setPublicView}
       />
     );
@@ -148,8 +210,8 @@ function AuthGate() {
   if (state.config?.auth_mode === 'supabase' && !state.session) {
     return (
       <LandingPage
-        onSignIn={() => setPublicView('signin')}
-        onViewDemo={() => setPublicView('demo')}
+        onSignIn={openSignIn}
+        onViewDemo={openDemo}
         onSelectTrustPage={setPublicView}
       />
     );
@@ -158,7 +220,7 @@ function AuthGate() {
     <App
       authUser={state.session?.user || null}
       onSignOut={state.client ? signOut : null}
-      onViewDemo={() => setPublicView('demo')}
+      onViewDemo={() => openDemo('dashboard_empty_state')}
       onSelectTrustPage={setPublicView}
     />
   );
@@ -407,6 +469,10 @@ function SignInPage({ onBack, onContinueGoogle, onSendMagicLink, onViewDemo, onS
   const [status, setStatus] = React.useState(null);
   const [sending, setSending] = React.useState(false);
 
+  React.useEffect(() => {
+    trackAnalyticsEvent('signup_page_view');
+  }, []);
+
   const submitMagicLink = async (e) => {
     e.preventDefault();
     const trimmedEmail = email.trim();
@@ -414,14 +480,18 @@ function SignInPage({ onBack, onContinueGoogle, onSendMagicLink, onViewDemo, onS
 
     setSending(true);
     setStatus(null);
+    trackAnalyticsEvent('signup_magic_link_submit');
     try {
       const result = await onSendMagicLink(trimmedEmail);
       if (result?.error) {
+        trackAnalyticsEvent('signup_magic_link_failure', { reason: 'provider_error' });
         setStatus({ type: 'error', message: result.error });
       } else {
+        trackAnalyticsEvent('signup_magic_link_success');
         setStatus({ type: 'success', message: 'Check your email for a secure sign-in link.' });
       }
     } catch {
+      trackAnalyticsEvent('signup_magic_link_failure', { reason: 'network_error' });
       setStatus({ type: 'error', message: 'Unable to send a sign-in link right now.' });
     } finally {
       setSending(false);
@@ -711,6 +781,10 @@ function LandingDashboardPreview() {
 }
 
 function LandingPage({ onSignIn, onViewDemo, onSelectTrustPage }) {
+  useEffect(() => {
+    trackAnalyticsEvent('landing_view');
+  }, []);
+
   return (
     <main className="landing-page">
       <nav className="landing-nav">
@@ -718,8 +792,8 @@ function LandingPage({ onSignIn, onViewDemo, onSelectTrustPage }) {
           <span>▸</span> WealthBrief
         </button>
         <div className="landing-nav-actions">
-          <button className="btn" onClick={onViewDemo}>View demo</button>
-          <button className="btn btn-primary" onClick={onSignIn}>Start free</button>
+          <button className="btn" onClick={() => onViewDemo('landing_nav')}>View demo</button>
+          <button className="btn btn-primary" onClick={() => onSignIn('landing_nav')}>Start free</button>
         </div>
       </nav>
 
@@ -734,8 +808,8 @@ function LandingPage({ onSignIn, onViewDemo, onSelectTrustPage }) {
             Track holdings, tax lots, realized gains and losses, and portfolio history in one place before you make taxable trades.
           </p>
           <div className="landing-actions">
-            <button className="btn btn-primary" onClick={onViewDemo}>Explore demo portfolio</button>
-            <button className="btn" onClick={onSignIn}>Create free account</button>
+            <button className="btn btn-primary" onClick={() => onViewDemo('landing_hero')}>Explore demo portfolio</button>
+            <button className="btn" onClick={() => onSignIn('landing_hero')}>Create free account</button>
           </div>
           <div className="landing-proof-row">
             <span>CSV-first onboarding</span>
@@ -775,7 +849,7 @@ function LandingPage({ onSignIn, onViewDemo, onSelectTrustPage }) {
           <h2>Open a realistic sample portfolio.</h2>
           <p>Click holdings, inspect tax lots, review closed trades, and see the kind of records WealthBrief is designed to organize.</p>
         </div>
-        <button className="btn btn-primary" onClick={onViewDemo}>Launch demo</button>
+        <button className="btn btn-primary" onClick={() => onViewDemo('landing_demo_band')}>Launch demo</button>
       </section>
 
       <footer className="landing-footer">
@@ -1255,6 +1329,10 @@ function UploadPanel({ onUpload }) {
 
 function OnboardingPanel({ onUpload, onAdd, onViewDemo }) {
   const [choice, setChoice] = useState('import');
+  const selectChoice = (nextChoice) => {
+    setChoice(nextChoice);
+    trackAnalyticsEvent('onboarding_choice_selected', { choice: nextChoice });
+  };
 
   return (
     <div className="onboarding-panel">
@@ -1267,7 +1345,7 @@ function OnboardingPanel({ onUpload, onAdd, onViewDemo }) {
         <button
           type="button"
           className={`onboarding-choice${choice === 'import' ? ' active' : ''}`}
-          onClick={() => setChoice('import')}
+          onClick={() => selectChoice('import')}
         >
           <strong>Import CSV</strong>
           <span>Upload holdings from Robinhood, E*Trade, Schwab, Fidelity, Interactive Brokers, or a generic export.</span>
@@ -1275,12 +1353,19 @@ function OnboardingPanel({ onUpload, onAdd, onViewDemo }) {
         <button
           type="button"
           className={`onboarding-choice${choice === 'manual' ? ' active' : ''}`}
-          onClick={() => setChoice('manual')}
+          onClick={() => selectChoice('manual')}
         >
           <strong>Add manually</strong>
           <span>Start with a single holding and add tax lots after the position is saved.</span>
         </button>
-        <button type="button" className="onboarding-choice" onClick={onViewDemo}>
+        <button
+          type="button"
+          className="onboarding-choice"
+          onClick={() => {
+            trackAnalyticsEvent('onboarding_choice_selected', { choice: 'sample_portfolio' });
+            onViewDemo();
+          }}
+        >
           <strong>Use sample portfolio</strong>
           <span>Open a realistic dashboard with sample holdings, tax lots, and closed trades.</span>
         </button>
@@ -1371,6 +1456,10 @@ function AddActivePositionForm({ onAdd, compact = false }) {
     e.preventDefault();
     if (!form.symbol || !form.quantity || !form.average_cost || !form.current_price) return;
     setSaving(true);
+    trackAnalyticsEvent('manual_position_add_start', {
+      broker: form.broker,
+      asset_type: form.asset_type,
+    });
     try {
       const res = await fetch(`${API}/api/positions/upsert`, {
         method: 'POST',
@@ -1387,11 +1476,26 @@ function AddActivePositionForm({ onAdd, compact = false }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        trackAnalyticsEvent('manual_position_add_failure', {
+          broker: form.broker,
+          asset_type: form.asset_type,
+          status: res.status,
+        });
         alert(data.detail || 'Position add failed');
         return;
       }
+      trackAnalyticsEvent('manual_position_add_success', {
+        broker: form.broker,
+        asset_type: form.asset_type,
+      });
       setForm(empty);
       onAdd(data);
+    } catch {
+      trackAnalyticsEvent('manual_position_add_failure', {
+        broker: form.broker,
+        asset_type: form.asset_type,
+        reason: 'network_error',
+      });
     } finally {
       setSaving(false);
     }
@@ -2989,6 +3093,10 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
   const hasPricedPositions = positions.some(p => p.asset_type !== 'cash');
   const hasAnyData = hasData || closedPositions.length > 0;
 
+  useEffect(() => {
+    trackAnalyticsEvent(demoMode ? 'demo_portfolio_view' : 'dashboard_view');
+  }, [demoMode]);
+
   const fetchPortfolio = useCallback(async () => {
     try {
       const res = await fetch(`${API}/api/portfolio`);
@@ -3106,21 +3214,29 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
 
   const handleUpload = async (formData, broker) => {
     if (demoMode) {
+      trackAnalyticsEvent('csv_import_blocked', { broker, reason: 'demo_mode' });
       setToast({ message: 'Sign in to import your own CSV', type: 'success' });
       return;
     }
+    trackAnalyticsEvent('csv_import_start', { broker });
     try {
       const res = await fetch(`${API}/api/import/csv?broker=${broker}`, {
         method: 'POST', body: formData,
       });
       const data = await res.json();
       if (res.ok) {
+        trackAnalyticsEvent('csv_import_success', {
+          broker,
+          imported: data.imported || 0,
+        });
         setToast({ message: `Imported ${data.imported} positions`, type: 'success' });
         fetchPortfolio();
       } else {
+        trackAnalyticsEvent('csv_import_failure', { broker, status: res.status });
         setToast({ message: data.detail || 'Import failed', type: 'error' });
       }
     } catch {
+      trackAnalyticsEvent('csv_import_failure', { broker, reason: 'network_error' });
       setToast({ message: 'Upload failed', type: 'error' });
     }
   };
@@ -3179,6 +3295,7 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
 
   const handleAddActive = async (position) => {
     if (demoMode) {
+      trackAnalyticsEvent('manual_position_add_blocked', { reason: 'demo_mode' });
       setToast({ message: 'Sign in to add real positions', type: 'success' });
       return;
     }

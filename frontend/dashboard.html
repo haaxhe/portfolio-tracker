@@ -217,6 +217,14 @@
   .broker-robinhood { background: var(--accent-green-bg); color: var(--accent-green); }
   .broker-etrade { background: var(--accent-blue-bg); color: var(--accent-blue); }
   .broker-csv { background: rgba(251,191,36,0.1); color: var(--accent-amber); }
+  .option-badge {
+    font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 3px;
+    letter-spacing: 0.4px; text-transform: uppercase;
+  }
+  .option-call { background: rgba(52,211,153,0.12); color: var(--accent-green); }
+  .option-put  { background: rgba(248,113,113,0.12); color: var(--accent-red); }
+  .option-meta { font-size: 10px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 2px; }
+  .option-form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 
   /* Tabs */
   .tab-bar {
@@ -766,6 +774,20 @@ function DateRangeFilter({ value, onChange }) {
   );
 }
 
+function BrokerFilter({ brokers, value, onChange }) {
+  const opts = ['all', ...brokers];
+  return (
+    <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
+      <span style={{ fontSize: '9px', color: 'var(--text-muted)', marginRight: '2px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Broker</span>
+      {opts.map(o => (
+        <button key={o} className={`tab-btn${value === o ? ' active' : ''}`}
+          onClick={() => onChange(o)}
+          style={{ fontSize: '10px', padding: '4px 9px', textTransform: 'capitalize' }}>{o}</button>
+      ))}
+    </div>
+  );
+}
+
 // Pure SVG line — driven by an external hover index
 function SparklineInner({ values, width, height, color, hover, showZeroLine = false }) {
   const pad = 2;
@@ -858,12 +880,22 @@ function PositionSparklines({ closes, dates, avgCost, quantity, width = 88 }) {
 }
 
 // Full-width interactive portfolio gain/loss chart with date range filter
-function OverallTrend30D({ positions, priceHistory, dateRange, onRangeChange }) {
+function OverallTrend30D({ positions, priceHistory, dateRange, onRangeChange, brokerFilter, onBrokerChange }) {
   const [hover, setHover] = React.useState(null);
   const svgRef = React.useRef(null);
 
+  // Derive available brokers from non-cash positions
+  const availableBrokers = React.useMemo(() => {
+    const s = new Set(positions.filter(p => p.asset_type !== 'cash').map(p => p.broker).filter(Boolean));
+    return [...s].sort();
+  }, [positions]);
+
   const { dates, gains, totalValues } = React.useMemo(() => {
-    const stockPos = positions.filter(p => p.asset_type !== 'cash' && p.average_cost > 0);
+    const stockPos = positions.filter(p =>
+      p.asset_type !== 'cash' &&
+      p.average_cost > 0 &&
+      (brokerFilter === 'all' || p.broker === brokerFilter)
+    );
     if (!stockPos.length || !Object.keys(priceHistory).length) return { dates: [], gains: [], totalValues: [] };
 
     // Compute cutoff date string based on selected range
@@ -902,7 +934,7 @@ function OverallTrend30D({ positions, priceHistory, dateRange, onRangeChange }) 
       }
     });
     return { dates, gains, totalValues };
-  }, [positions, priceHistory, dateRange]);
+  }, [positions, priceHistory, dateRange, brokerFilter]);
 
   if (dates.length < 3) return null;
 
@@ -939,9 +971,12 @@ function OverallTrend30D({ positions, priceHistory, dateRange, onRangeChange }) 
   return (
     <div className="panel" style={{ marginBottom: '20px' }}>
       <div className="panel-header" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           <span className="panel-title">Portfolio {rangeLabel} Gain/Loss</span>
           <DateRangeFilter value={dateRange} onChange={onRangeChange} />
+          {availableBrokers.length > 1 && (
+            <BrokerFilter brokers={availableBrokers} value={brokerFilter} onChange={onBrokerChange} />
+          )}
         </div>
         {hover ? (
           <div style={{ fontFamily:'var(--font-mono)', fontSize:'12px', display:'flex', gap:'16px', alignItems:'center' }}>
@@ -1069,9 +1104,13 @@ function PositionsTable({ positions, taxLots, selectedKey, onSelectPosition, pri
       <tbody>
         {sorted.map((p, i) => {
           const isCash = p.asset_type === 'cash';
-          const key = `${p.symbol}-${p.broker}`;
+          const isOption = p.asset_type === 'option';
+          // Options with different strikes share the same underlying symbol — key must be unique
+          const key = isOption
+            ? `${p.symbol}-${p.broker}-${p.option_type}-${p.strike_price}-${p.expiration_date}`
+            : `${p.symbol}-${p.broker}`;
           const isSelected = selectedKey === key;
-          const lots = isCash ? [] : (taxLots[key] || []);
+          const lots = isCash ? [] : (taxLots[`${p.symbol}-${p.broker}`] || []);
           const ltCount = lots.filter(l => l.holding_period === 'long').length;
           const stCount = lots.filter(l => l.holding_period === 'short').length;
           const hist = !isCash ? (priceHistory[p.symbol] || null) : null;
@@ -1080,6 +1119,20 @@ function PositionsTable({ positions, taxLots, selectedKey, onSelectPosition, pri
           const { dates: histDates, closes } = rawCloses
             ? filterByRange(rawDates, rawCloses, dateRange)
             : { dates: null, closes: null };
+
+          // Option display helpers
+          const optLabel = isOption && p.strike_price != null
+            ? `$${p.strike_price % 1 === 0 ? p.strike_price.toFixed(0) : p.strike_price} ${p.option_type === 'call' ? 'Call' : 'Put'}`
+            : null;
+          const optExpiry = isOption && p.expiration_date
+            ? (() => { const [, m, d] = p.expiration_date.split('-'); return `${parseInt(m)}/${parseInt(d)}`; })()
+            : null;
+          const breakeven = isOption && p.strike_price != null
+            ? p.option_type === 'call'
+              ? p.strike_price + p.average_cost
+              : p.strike_price - p.average_cost
+            : null;
+
           return (
             <tr
               key={`${key}-${i}`}
@@ -1089,12 +1142,27 @@ function PositionsTable({ positions, taxLots, selectedKey, onSelectPosition, pri
             >
               <td>
                 <div className="symbol-cell">
-                  <span className="symbol-ticker" style={isCash ? { color: 'var(--accent-amber)' } : {}}>{p.symbol}</span>
-                  <span className="symbol-name">{isCash ? 'Cash Balance' : p.name}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span className="symbol-ticker" style={isCash ? { color: 'var(--accent-amber)' } : {}}>{p.symbol}</span>
+                    {isOption && p.option_type && (
+                      <span className={`option-badge option-${p.option_type}`}>{p.option_type === 'call' ? 'C' : 'P'}</span>
+                    )}
+                  </div>
+                  {isOption ? (
+                    <div className="option-meta">
+                      {optLabel && <span>{optLabel}</span>}
+                      {optExpiry && <span style={{color:'var(--text-muted)'}}>exp {optExpiry}</span>}
+                      {breakeven != null && <span>BE <span style={{color:'var(--text-primary)'}}>${breakeven.toFixed(2)}</span></span>}
+                    </div>
+                  ) : (
+                    <span className="symbol-name">{isCash ? 'Cash Balance' : p.name}</span>
+                  )}
                 </div>
               </td>
               <td><span className={`broker-tag broker-${p.broker}`}>{p.broker}</span></td>
-              <td style={{ color: 'var(--text-muted)' }}>{isCash ? '—' : p.quantity}</td>
+              <td style={{ color: 'var(--text-muted)' }}>
+                {isCash ? '—' : isOption ? `${p.quantity} ct` : p.quantity}
+              </td>
               <td style={{ color: 'var(--text-muted)' }}>{isCash ? '—' : formatMoney(p.average_cost)}</td>
               <td style={{ color: 'var(--text-muted)' }}>{isCash ? '—' : formatMoney(p.current_price)}</td>
               <td>{formatMoney(p.market_value)}</td>
@@ -1265,28 +1333,39 @@ function AddActivePositionForm({ onAdd }) {
     quantity: '',
     average_cost: '',
     current_price: '',
+    option_type: 'call',
+    strike_price: '',
+    expiration_date: '',
   };
   const [form, setForm] = React.useState(empty);
   const [saving, setSaving] = React.useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const isOption = form.asset_type === 'option';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.symbol || !form.quantity || !form.average_cost || !form.current_price) return;
+    if (isOption && (!form.strike_price || !form.expiration_date)) return;
     setSaving(true);
     try {
+      const body = {
+        symbol: form.symbol.toUpperCase().trim(),
+        name: form.name.trim(),
+        broker: form.broker,
+        asset_type: form.asset_type,
+        quantity: parseFloat(form.quantity),
+        average_cost: parseFloat(form.average_cost),
+        current_price: parseFloat(form.current_price),
+      };
+      if (isOption) {
+        body.option_type = form.option_type;
+        body.strike_price = parseFloat(form.strike_price);
+        body.expiration_date = form.expiration_date;
+      }
       const res = await fetch(`${API}/api/positions/upsert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          symbol: form.symbol.toUpperCase().trim(),
-          name: form.name.trim(),
-          broker: form.broker,
-          asset_type: form.asset_type,
-          quantity: parseFloat(form.quantity),
-          average_cost: parseFloat(form.average_cost),
-          current_price: parseFloat(form.current_price),
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1331,22 +1410,53 @@ function AddActivePositionForm({ onAdd }) {
           <input className="form-input" placeholder="Optional" value={form.name} onChange={e => set('name', e.target.value)} />
         </div>
       </div>
+      {isOption && (
+        <div className="option-form-grid" style={{ marginBottom: '8px' }}>
+          <div className="form-row">
+            <label className="form-label">Option Type *</label>
+            <select className="form-input" value={form.option_type} onChange={e => set('option_type', e.target.value)}>
+              <option value="call">Call</option>
+              <option value="put">Put</option>
+            </select>
+          </div>
+          <div className="form-row">
+            <label className="form-label">Strike Price *</label>
+            <input className="form-input" type="number" min="0" step="any" placeholder="450.00" value={form.strike_price} onChange={e => set('strike_price', e.target.value)} required={isOption} />
+          </div>
+          <div className="form-row">
+            <label className="form-label">Expiration *</label>
+            <input className="form-input" type="date" value={form.expiration_date} onChange={e => set('expiration_date', e.target.value)} required={isOption} />
+          </div>
+        </div>
+      )}
       <div className="form-grid-2">
         <div className="form-row">
-          <label className="form-label">Qty *</label>
-          <input className="form-input" type="number" min="0" step="any" placeholder="0" value={form.quantity} onChange={e => set('quantity', e.target.value)} required />
+          <label className="form-label">{isOption ? 'Contracts *' : 'Qty *'}</label>
+          <input className="form-input" type="number" min="0" step="any" placeholder={isOption ? '1' : '0'} value={form.quantity} onChange={e => set('quantity', e.target.value)} required />
         </div>
         <div className="form-row">
-          <label className="form-label">Avg Cost *</label>
+          <label className="form-label">Avg Cost {isOption ? '(per share) *' : '*'}</label>
           <input className="form-input" type="number" min="0" step="any" placeholder="0.00" value={form.average_cost} onChange={e => set('average_cost', e.target.value)} required />
         </div>
       </div>
       <div className="form-row">
-        <label className="form-label">Current Price *</label>
+        <label className="form-label">Current Price {isOption ? '(per share) *' : '*'}</label>
         <input className="form-input" type="number" min="0" step="any" placeholder="0.00" value={form.current_price} onChange={e => set('current_price', e.target.value)} required />
       </div>
+      {isOption && form.strike_price && form.average_cost && (
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px', fontFamily: 'var(--font-mono)', display: 'flex', gap: '14px' }}>
+          <span>BE: <span style={{ color: 'var(--text-secondary)' }}>
+            ${form.option_type === 'call'
+              ? (parseFloat(form.strike_price) + parseFloat(form.average_cost)).toFixed(2)
+              : (parseFloat(form.strike_price) - parseFloat(form.average_cost)).toFixed(2)}
+          </span></span>
+          {form.quantity && <span>Mkt Val: <span style={{ color: 'var(--text-secondary)' }}>
+            ${(parseFloat(form.quantity) * parseFloat(form.current_price || 0) * 100).toFixed(2)}
+          </span></span>}
+        </div>
+      )}
       <button type="submit" className="btn btn-primary" style={{ width:'100%', marginTop:'4px' }} disabled={saving}>
-        {saving ? 'Saving...' : 'Add Active Position'}
+        {saving ? 'Saving...' : `Add ${isOption ? 'Option' : 'Active'} Position`}
       </button>
     </form>
   );
@@ -2643,6 +2753,7 @@ function App({ authUser, onSignOut }) {
   const [toast, setToast] = useState(null);
   const [activeTab, setActiveTab] = useState('active');
   const [dateRange, setDateRange] = useState('1M');
+  const [brokerFilter, setBrokerFilter] = useState('all');
 
   const fetchPortfolio = useCallback(async () => {
     try {
@@ -2831,7 +2942,7 @@ function App({ authUser, onSignOut }) {
       {activeTab !== 'signals' && <GoalProgressBar ytdRealized={ytdRealized} unrealizedGain={portfolio?.total_gain} />}
 
       {/* Portfolio trend — hidden when Signals tab is active */}
-      {activeTab !== 'signals' && <OverallTrend30D positions={positions} priceHistory={priceHistory} dateRange={dateRange} onRangeChange={setDateRange} />}
+      {activeTab !== 'signals' && <OverallTrend30D positions={positions} priceHistory={priceHistory} dateRange={dateRange} onRangeChange={setDateRange} brokerFilter={brokerFilter} onBrokerChange={setBrokerFilter} />}
 
       {/* Main content */}
       <div className={`content-grid${activeTab === 'signals' ? ' signals-full' : ''}`}>
