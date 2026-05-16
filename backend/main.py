@@ -163,6 +163,7 @@ def api_public_config():
     """Frontend-safe runtime config."""
     return {
         "app_name": "WealthBrief",
+        "environment": settings.environment_name,
         "app_base_url": settings.APP_BASE_URL,
         "auth_mode": settings.AUTH_MODE,
         "supabase_url": settings.SUPABASE_URL if settings.AUTH_MODE == "supabase" else "",
@@ -775,9 +776,12 @@ def serve_dashboard():
         raise HTTPException(503, "Frontend build is missing")
 
     local_fallback = FRONTEND_DIR / "dashboard.html"
-    if local_fallback.exists():
+    if settings.ALLOW_LEGACY_DASHBOARD and local_fallback.exists():
         return HTMLResponse(local_fallback.read_text())
-    return HTMLResponse("<h1>Dashboard not found</h1><p>Build frontend assets first.</p>", status_code=503)
+    return HTMLResponse(
+        "<h1>Frontend build is missing</h1><p>Run <code>npm run build</code> before starting the backend.</p>",
+        status_code=503,
+    )
 
 
 # ─── Run ───────────────────────────────────────────────────────

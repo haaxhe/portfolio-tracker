@@ -178,6 +178,8 @@ function AuthGate() {
     return (
       <App
         authUser={state.session?.user || (state.config?.auth_mode !== 'supabase' ? { id: 'local' } : null)}
+        environment={state.config?.environment}
+        authMode={state.config?.auth_mode}
         demoMode
         demoData={DEMO_DATA}
         onExitDemo={() => setPublicView('landing')}
@@ -219,6 +221,8 @@ function AuthGate() {
   return (
     <App
       authUser={state.session?.user || null}
+      environment={state.config?.environment}
+      authMode={state.config?.auth_mode}
       onSignOut={state.client ? signOut : null}
       onViewDemo={() => openDemo('dashboard_empty_state')}
       onSelectTrustPage={setPublicView}
@@ -230,6 +234,16 @@ function formatMoney(n) {
   if (n == null || isNaN(n)) return '$0.00';
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
+
+function formatEnvironmentLabel(environment, authMode) {
+  const env = (environment || 'local').toLowerCase();
+  const auth = (authMode || 'local').toLowerCase();
+  if (env === 'production') return '';
+  if (env === 'staging') return 'STAGING';
+  if (auth === 'supabase') return 'LOCAL LIVE-LIKE';
+  return 'LOCAL';
+}
+
 function formatPct(n) {
   if (n == null || isNaN(n)) return '0.00%';
   return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
@@ -3071,7 +3085,18 @@ function SignalsView({ portfolioSymbols = [] }) {
   );
 }
 
-function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDemo = null, onSignIn = null, onViewDemo = null, onSelectTrustPage = () => {} }) {
+function App({
+  authUser,
+  environment = 'local',
+  authMode = 'local',
+  onSignOut,
+  demoMode = false,
+  demoData = null,
+  onExitDemo = null,
+  onSignIn = null,
+  onViewDemo = null,
+  onSelectTrustPage = () => {},
+}) {
   const [portfolio, setPortfolio] = useState(demoMode ? demoData.portfolio : null);
   const [closedPositions, setClosedPositions] = useState(demoMode ? demoData.closedPositions : []);
   const [taxLots, setTaxLots] = useState(demoMode ? demoData.taxLots : {});        // key: "SYMBOL-broker" → lot[]
@@ -3336,13 +3361,17 @@ function App({ authUser, onSignOut, demoMode = false, demoData = null, onExitDem
     .filter(p => p.closed_at?.startsWith(currentYear))
     .reduce((s, p) => s + p.realized_gain, 0);
   const showPortfolioOverview = activeTab !== 'signals' && (hasAnyData || demoMode);
+  const environmentLabel = demoMode ? '' : formatEnvironmentLabel(environment, authMode);
 
   return (
     <div className="app-container">
       {/* Header */}
       <div className="header">
         <div className="header-left">
-          <h1><span>▸</span> {demoMode ? 'WealthBrief Demo' : 'WealthBrief'}</h1>
+          <h1>
+            <span className="brand-caret">▸</span> {demoMode ? 'WealthBrief Demo' : 'WealthBrief'}
+            {environmentLabel && <span className="environment-badge">{environmentLabel}</span>}
+          </h1>
           <div className="subtitle">
             {hasData
               ? `${positions.length} positions across ${Object.keys(portfolio.broker_breakdown || {}).length} broker(s)`

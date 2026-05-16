@@ -18,6 +18,7 @@ class ApiMvpTest(unittest.TestCase):
         self.original_token = settings.API_TOKEN
         self.original_default_user = settings.DEFAULT_USER_ID
         self.original_trust_proxy_user_header = settings.TRUST_PROXY_USER_HEADER
+        self.original_allow_legacy_dashboard = settings.ALLOW_LEGACY_DASHBOARD
         self.original_environment = settings.ENVIRONMENT
         self.original_database_url = settings.DATABASE_URL
         self.original_app_base_url = settings.APP_BASE_URL
@@ -40,6 +41,7 @@ class ApiMvpTest(unittest.TestCase):
         settings.API_TOKEN = self.original_token
         settings.DEFAULT_USER_ID = self.original_default_user
         settings.TRUST_PROXY_USER_HEADER = self.original_trust_proxy_user_header
+        settings.ALLOW_LEGACY_DASHBOARD = self.original_allow_legacy_dashboard
         settings.ENVIRONMENT = self.original_environment
         settings.DATABASE_URL = self.original_database_url
         settings.APP_BASE_URL = self.original_app_base_url
@@ -260,6 +262,35 @@ class ApiMvpTest(unittest.TestCase):
         settings.SUPABASE_PUBLISHABLE_KEY = "publishable-key"
 
         settings.validate_for_startup()
+
+    def test_staging_startup_validation_accepts_supabase_postgres_on_localhost(self) -> None:
+        settings.ENVIRONMENT = "staging"
+        settings.AUTH_MODE = "supabase"
+        settings.DATABASE_URL = "postgresql://user:pass@db.example.com/postgres"
+        settings.APP_BASE_URL = "http://127.0.0.1:8000"
+        settings.CORS_ORIGINS = ["http://127.0.0.1:8000", "http://localhost:8000"]
+        settings.SUPABASE_URL = "https://project.supabase.co"
+        settings.SUPABASE_PUBLISHABLE_KEY = "publishable-key"
+
+        settings.validate_for_startup()
+
+    def test_staging_startup_validation_requires_live_like_services(self) -> None:
+        settings.ENVIRONMENT = "staging"
+        settings.AUTH_MODE = "local"
+        settings.DATABASE_URL = ""
+        settings.SUPABASE_URL = ""
+        settings.SUPABASE_PUBLISHABLE_KEY = ""
+
+        with self.assertRaises(RuntimeError):
+            settings.validate_for_startup()
+
+    def test_public_config_includes_environment(self) -> None:
+        settings.ENVIRONMENT = "staging"
+
+        response = self.client.get("/api/public-config")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["environment"], "staging")
 
     def test_anonymous_api_surface_is_limited(self) -> None:
         allowed = {"/api/public-config", "/api/price-history"}

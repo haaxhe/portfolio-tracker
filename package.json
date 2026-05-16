@@ -4,7 +4,10 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "app:local": "scripts/run-local.sh",
+    "app:staging-local": "scripts/run-staging-local.sh",
+    "check:release": "scripts/check-release.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.8",

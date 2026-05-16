@@ -56,10 +56,13 @@ cp .env.example .env
 npm run build
 
 # 5. Run (starts backend + serves dashboard)
-python -m backend.main
+npm run app:local
 
 # 6. Open http://localhost:8000
 ```
+
+When using the `one-person-bank` wrapper, keep portfolio-tracker running on
+`http://localhost:8000`; the wrapper's Portfolio tab embeds that local app.
 
 ## MVP Auth Modes
 
@@ -114,6 +117,40 @@ manually:
 ```js
 localStorage.setItem('portfolio_tracker_api_token', '<API_TOKEN>');
 ```
+
+## Local, Staging, Production Workflow
+
+Use local personal mode for fast dashboard work:
+
+```bash
+npm run app:local
+```
+
+This sets `ENVIRONMENT=local`, `AUTH_MODE=local`, uses SQLite by default, and
+shows a `LOCAL` badge in the dashboard header. It is the right mode for quick UI,
+portfolio logic, CSV import, tax view, and one-person-bank embedding work.
+
+Use local live-like mode before promoting changes:
+
+```bash
+cp .env.staging.example .env.staging
+# Fill .env.staging with a staging Supabase URL, publishable key, and Postgres URL.
+npm run app:staging-local
+```
+
+This sets `ENVIRONMENT=staging` and `AUTH_MODE=supabase`, requires a Postgres
+`DATABASE_URL`, and still allows localhost URLs. Use a separate staging Supabase
+project/database from production.
+
+Before merging or deploying:
+
+```bash
+npm run check:release
+```
+
+The backend no longer silently serves the legacy `frontend/dashboard.html`
+fallback. If `frontend/dist` is missing, run `npm run build`. Set
+`ALLOW_LEGACY_DASHBOARD=true` only when intentionally opening the old fallback.
 
 ## Broker Setup
 

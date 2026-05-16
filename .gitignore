@@ -5,6 +5,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+!.env.staging.example
 .DS_Store
 *.db
 *.db-wal

@@ -58,6 +58,7 @@ class Settings:
     AUTH_MODE: str = _getenv("AUTH_MODE", "local")  # local, token, or supabase
     API_TOKEN: str = _getenv("API_TOKEN")
     TRUST_PROXY_USER_HEADER: bool = _getbool("TRUST_PROXY_USER_HEADER")
+    ALLOW_LEGACY_DASHBOARD: bool = _getbool("ALLOW_LEGACY_DASHBOARD")
     SUPABASE_URL: str = _getenv("SUPABASE_URL")
     SUPABASE_PUBLISHABLE_KEY: str = (
         _getenv("SUPABASE_PUBLISHABLE_KEY")
@@ -90,12 +91,29 @@ class Settings:
         return bool(self.ALPACA_API_KEY and self.ALPACA_SECRET_KEY and self.ALPACA_DATA_ENDPOINT)
 
     @property
+    def environment_name(self) -> str:
+        env = self.ENVIRONMENT.strip().lower()
+        return "production" if env == "prod" else env
+
+    @property
+    def is_staging(self) -> bool:
+        return self.environment_name == "staging"
+
+    @property
     def is_production(self) -> bool:
-        return self.ENVIRONMENT.strip().lower() in {"prod", "production"}
+        return self.environment_name == "production"
+
+    @property
+    def uses_postgres_database(self) -> bool:
+        return self.DATABASE_URL.strip().startswith(("postgres://", "postgresql://"))
 
     def validate_for_startup(self) -> None:
         auth_mode = self.AUTH_MODE.strip().lower()
+        env = self.environment_name
         errors: list[str] = []
+
+        if env not in {"local", "staging", "production"}:
+            errors.append("ENVIRONMENT must be local, staging, or production")
 
         if auth_mode not in {"local", "token", "supabase"}:
             errors.append("AUTH_MODE must be local, token, or supabase")
@@ -103,15 +121,19 @@ class Settings:
         if "*" in self.CORS_ORIGINS:
             errors.append("CORS_ORIGINS must not include '*' when credentials are enabled")
 
-        if self.is_production:
+        if self.is_staging or self.is_production:
             if auth_mode != "supabase":
-                errors.append("ENVIRONMENT=production requires AUTH_MODE=supabase")
+                errors.append(f"ENVIRONMENT={env} requires AUTH_MODE=supabase")
             if not self.DATABASE_URL:
-                errors.append("ENVIRONMENT=production requires DATABASE_URL")
+                errors.append(f"ENVIRONMENT={env} requires DATABASE_URL")
+            elif not self.uses_postgres_database:
+                errors.append(f"ENVIRONMENT={env} requires a Postgres DATABASE_URL")
+            if not self.SUPABASE_URL or not self.SUPABASE_PUBLISHABLE_KEY:
+                errors.append(f"ENVIRONMENT={env} requires Supabase auth settings")
+
+        if self.is_production:
             if not self.APP_BASE_URL.startswith("https://"):
                 errors.append("ENVIRONMENT=production requires an HTTPS APP_BASE_URL")
-            if not self.SUPABASE_URL or not self.SUPABASE_PUBLISHABLE_KEY:
-                errors.append("ENVIRONMENT=production requires Supabase auth settings")
             if any(not origin.startswith("https://") for origin in self.CORS_ORIGINS):
                 errors.append("ENVIRONMENT=production requires HTTPS CORS_ORIGINS")
 
